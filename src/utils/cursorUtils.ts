@@ -14,7 +14,9 @@ export async function resetCursor(options: ResetOptions = {}): Promise<void> {
 
     // Check if Electron API is available
     if (!window.electronAPI) {
-      throw new Error("Electron API is not available. Please run in Electron app.");
+      throw new Error(
+        "Electron API is not available. Please run in Electron app."
+      );
     }
 
     onProgress?.("📁 Getting Cursor path information...");
@@ -32,7 +34,6 @@ export async function resetCursor(options: ResetOptions = {}): Promise<void> {
     }
 
     onProgress?.("🎉 Cursor reset completed!");
-
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     onProgress?.(`❌ Reset error: ${errorMessage}`);

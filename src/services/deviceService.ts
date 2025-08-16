@@ -80,6 +80,18 @@ class DeviceService {
 
   // Get complete device info
   async getDeviceInfo(): Promise<DeviceInfoState> {
+    // Check if running in Electron environment
+    if (!window.electronAPI) {
+      console.warn("Electron API not available - running in browser mode");
+      return {
+        machineId: "N/A (Browser Mode)",
+        currentAccount: "N/A (Browser Mode)",
+        cursorToken: "N/A (Browser Mode)",
+        hookStatus: null,
+        cursorRunning: false,
+      };
+    }
+
     try {
       const [machineInfo, hookStatus, cursorRunning] = await Promise.all([
         this.getMachineIds(),

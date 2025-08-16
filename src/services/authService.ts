@@ -136,7 +136,9 @@ export class AuthService {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
-          errorData.error || errorData.message || `HTTP ${response.status}: ${response.statusText}`
+          errorData.error ||
+            errorData.message ||
+            `HTTP ${response.status}: ${response.statusText}`
         );
       }
 
@@ -263,12 +265,18 @@ export class AuthService {
       });
 
       if (response.status !== 200) {
-        const errorMsg = response.data?.error || response.data?.message || `HTTP ${response.status}: ${response.statusText}`;
+        const errorMsg =
+          response.data?.error ||
+          response.data?.message ||
+          `HTTP ${response.status}: ${response.statusText}`;
         throw new Error(errorMsg);
       }
 
       const serviceAccountData = response.data;
-      if (!serviceAccountData?.serviceAccount?.email || !serviceAccountData?.serviceAccount?.token) {
+      if (
+        !serviceAccountData?.serviceAccount?.email ||
+        !serviceAccountData?.serviceAccount?.token
+      ) {
         throw new Error("Invalid service account response");
       }
 
@@ -277,7 +285,10 @@ export class AuthService {
         token: serviceAccountData.serviceAccount.token,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Failed to get service account";
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "Failed to get service account";
       throw new Error(errorMessage);
     }
   }

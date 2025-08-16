@@ -47,7 +47,6 @@ const AccountsView: React.FC = () => {
         url: `https://recursor.pro/api/client/service-accounts?${queryParams.toString()}`,
         method: "GET",
         headers: {
-          Authorization: `Bearer ${auth.accessKey.id}`,
           "Content-Type": "application/json",
         },
       });

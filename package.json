@@ -1,8 +1,8 @@
 {
-  "name": "client",
-  "productName": "client",
+  "name": "recursor",
+  "productName": "Recursor",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Recursor - Cursor Account Management Tool",
   "main": ".webpack/main",
   "scripts": {
     "start": "electron-forge start",
@@ -27,10 +27,13 @@
     "@typescript-eslint/parser": "^5.62.0",
     "@vercel/webpack-asset-relocator-loader": "^1.7.3",
     "autoprefixer": "^10.4.21",
+    "canvas": "^3.1.2",
+    "copy-webpack-plugin": "^13.0.1",
     "css-loader": "^6.11.0",
     "electron": "37.3.0",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
+    "file-loader": "^6.2.0",
     "fork-ts-checker-webpack-plugin": "^7.3.0",
     "html-webpack-plugin": "^5.6.4",
     "node-loader": "^2.1.0",
@@ -39,12 +42,13 @@
     "style-loader": "^3.3.4",
     "tailwindcss": "^3.4.17",
     "ts-loader": "^9.5.2",
-    "typescript": "~4.5.4"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@types/react-router-dom": "^5.3.3",
     "better-sqlite3": "^12.2.0",
     "electron-squirrel-startup": "^1.0.1",
+    "lucide-react": "^0.539.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.1"

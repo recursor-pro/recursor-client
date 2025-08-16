@@ -1,6 +1,17 @@
 import React, { useState, useEffect } from "react";
+import {
+  RefreshCw,
+  Zap,
+  RotateCcw,
+  Monitor,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+} from "lucide-react";
 import Card from "../components/Card";
 import Button from "../components/Button";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { useToast } from "../components/ToastContainer";
 import KeyActivation from "../components/KeyActivation";
 import UserKeyInfo from "../components/UserKeyInfo";
 import QuickChange from "../components/QuickChange";
@@ -19,12 +30,24 @@ const DashboardView: React.FC = () => {
 
   // Use authentication hook
   const auth = useAuth();
+  const toast = useToast();
 
-  // State for success/error messages
-  const [message, setMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
+  // State for confirmation dialogs
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: "danger" | "warning" | "info";
+    loading?: boolean;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {
+      // No-op function for initial state - actual handler set when dialog opens
+    },
+  });
 
   // Load device info on component mount
   useEffect(() => {
@@ -58,66 +81,54 @@ const DashboardView: React.FC = () => {
   };
 
   const handleResetCursor = async () => {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Confirm Cursor Reset",
+      message:
+        "This operation will:\n• Close all Cursor processes\n• Generate new Machine ID\n• Clear configuration and cache\n• Restore hooks to original state\n\nThis action cannot be undone.",
+      variant: "warning",
+      onConfirm: performCursorReset,
+    });
+  };
+
+  const performCursorReset = async () => {
     try {
-      // Ask user for confirmation before resetting
-      const confirmed = window.confirm(
-        "⚠️ Confirm Cursor Reset?\n\n" +
-          "This operation will:\n" +
-          "• Close all Cursor processes\n" +
-          "• Generate new Machine ID\n" +
-          "• Clear configuration and cache\n" +
-          "• Restore hooks to original state\n\n" +
-          "Click OK to proceed or Cancel to abort."
-      );
-
-      if (!confirmed) {
-        return;
-      }
-
-      setLoading(true);
-      setMessage({
-        type: "success",
-        text: "🔄 Starting Cursor reset...",
-      });
+      setConfirmDialog((prev) => ({ ...prev, loading: true }));
+      toast.showInfo("Starting Cursor reset...");
 
       // Check if Electron API is available
       if (!window.electronAPI) {
-        throw new Error("Electron API is not available. Please run in Electron app.");
+        throw new Error(
+          "Electron API is not available. Please run in Electron app."
+        );
       }
 
       // Perform the reset using the existing API
       const result = await window.electronAPI.resetCursor({});
 
       // Show success message with details
-      let successMessage = "🎉 Cursor reset completed successfully!";
+      let successMessage = "Cursor reset completed successfully!";
       if (result.details) {
         successMessage += `\n\n• ${result.details.kill}\n• ${result.details.reset}\n• ${result.details.clean}\n• ${result.details.restore}`;
       }
 
-      setMessage({
-        type: "success",
-        text: successMessage,
-      });
+      toast.showSuccess("Reset Complete", successMessage, 8000);
 
       // Refresh device info to show updated state
       await handleRefreshDeviceInfo();
 
-      // Clear message after 8 seconds (longer for reset completion)
-      setTimeout(() => setMessage(null), 8000);
-
+      // Close dialog
+      setConfirmDialog((prev) => ({ ...prev, isOpen: false, loading: false }));
     } catch (error) {
       console.error("Failed to reset cursor:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
-      setMessage({
-        type: "error",
-        text: `❌ Failed to reset cursor: ${errorMessage}`,
-      });
-
-      // Clear error message after 5 seconds
-      setTimeout(() => setMessage(null), 5000);
-    } finally {
-      setLoading(false);
+      toast.showError(
+        "Reset Failed",
+        `Failed to reset cursor: ${errorMessage}`
+      );
+      setConfirmDialog((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -126,155 +137,186 @@ const DashboardView: React.FC = () => {
       setLoading(true);
 
       // Check if Cursor is running
-      let forceKill = false;
       if (window.electronAPI) {
         const isRunning = await window.electronAPI.checkCursorRunning();
 
         if (isRunning) {
-          // Ask user if they want to force kill Cursor if it's running
-          forceKill = window.confirm(
-            "⚠️ Cursor is Running!\n\n" +
-              "Do you want to automatically close Cursor to continue resetting Machine ID?\n\n" +
-              "Click OK to close Cursor and continue, or Cancel to abort."
-          );
-
-          if (!forceKill) {
-            setLoading(false);
-            return; // User cancelled
-          }
+          // Show confirmation dialog for force kill
+          return new Promise<void>((resolve) => {
+            setConfirmDialog({
+              isOpen: true,
+              title: "Cursor is Running",
+              message:
+                "Do you want to automatically close Cursor to continue resetting Machine ID?",
+              variant: "warning",
+              onConfirm: async () => {
+                setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
+                await performMachineIdReset(true);
+                resolve();
+              },
+            });
+          });
         }
       }
 
-      // Call the reset machine IDs function
-      const result = await window.electronAPI.resetMachineIds(forceKill);
-
-      if (result.includes("❌")) {
-        throw new Error(result.replace("❌ Failed to reset machine IDs: ", ""));
-      }
-
-      // Refresh device info to show new machine ID
-      const updatedInfo = await deviceService.refreshDeviceInfo();
-      setDeviceInfo(updatedInfo);
-
-      // Show success message
-      setMessage({
-        type: "success",
-        text: `✅ Machine ID reset successfully!\n\nNew Machine ID: ${updatedInfo.machineId.substring(0, 8)}...`,
-      });
-
-      // Clear message after 5 seconds
-      setTimeout(() => setMessage(null), 5000);
-
+      await performMachineIdReset(false);
     } catch (error) {
       console.error("Failed to reset machine ID:", error);
-      setMessage({
-        type: "error",
-        text: `❌ Failed to reset machine ID: ${(error as Error).message}`,
-      });
-
-      // Clear error message after 5 seconds
-      setTimeout(() => setMessage(null), 5000);
+      toast.showError(
+        "Reset Failed",
+        `Failed to reset machine ID: ${(error as Error).message}`
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  const performMachineIdReset = async (forceKill: boolean) => {
+    // Check if Electron API is available
+    if (!window.electronAPI) {
+      throw new Error(
+        "Electron API is not available. Please run in Electron app."
+      );
+    }
+
+    // Call the reset machine IDs function
+    const result = await window.electronAPI.resetMachineIds(forceKill);
+
+    if (result.includes("❌")) {
+      throw new Error(result.replace("❌ Failed to reset machine IDs: ", ""));
+    }
+
+    // Refresh device info to show new machine ID
+    const updatedInfo = await deviceService.refreshDeviceInfo();
+    setDeviceInfo(updatedInfo);
+
+    // Show success message
+    toast.showSuccess(
+      "Machine ID Reset",
+      `Machine ID reset successfully!\n\nNew Machine ID: ${updatedInfo.machineId.substring(0, 8)}...`
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="spinner w-12 h-12"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Dashboard
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Overview of your Recursor status
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-secondary-900 dark:text-secondary-100">
+            Dashboard
+          </h1>
+          <p className="text-secondary-600 dark:text-secondary-400 mt-1">
+            Overview of your Recursor status
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefreshDeviceInfo}
+          loading={loading}
+          icon={<RefreshCw size={16} />}
+        >
+          Refresh
+        </Button>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Device Information */}
-        <Card title="Device Information">
-          <div className="space-y-3">
+        <Card
+          title="Device Information"
+          subtitle="Current system and application status"
+          variant="elevated"
+        >
+          <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <label className="text-sm font-medium text-secondary-500 dark:text-secondary-400">
                 Machine ID
               </label>
-              <p className="text-sm font-mono text-gray-900 dark:text-white">
+              <p className="text-sm font-mono text-secondary-900 dark:text-secondary-100 mt-1 bg-secondary-50 dark:bg-secondary-800 px-3 py-2 rounded-lg">
                 {deviceInfo.machineId || "Not available"}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <label className="text-sm font-medium text-secondary-500 dark:text-secondary-400">
                 Current Account
               </label>
-              <p className="text-sm text-gray-900 dark:text-white">
+              <p className="text-sm text-secondary-900 dark:text-secondary-100 mt-1">
                 {deviceInfo.currentAccount || "Not logged in"}
               </p>
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Hook Status
-                </label>
-                <div className="flex items-center space-x-2">
-                  <span
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      deviceInfo.hookStatus === true
-                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                        : deviceInfo.hookStatus === false
-                          ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                          : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
-                    }`}
-                  >
-                    {deviceInfo.hookStatus === true
-                      ? "✅ Active"
-                      : deviceInfo.hookStatus === false
-                        ? "❌ Inactive"
-                        : "❓ Unknown"}
-                  </span>
-                </div>
+            <div>
+              <label className="text-sm font-medium text-secondary-500 dark:text-secondary-400">
+                Hook Status
+              </label>
+              <div className="flex items-center space-x-2 mt-1">
+                {deviceInfo.hookStatus === true ? (
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle className="w-4 h-4 text-success-600" />
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-success-100 text-success-800 dark:bg-success-900/20 dark:text-success-400">
+                      Active
+                    </span>
+                  </div>
+                ) : deviceInfo.hookStatus === false ? (
+                  <div className="flex items-center space-x-2">
+                    <XCircle className="w-4 h-4 text-error-600" />
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-error-100 text-error-800 dark:bg-error-900/20 dark:text-error-400">
+                      Inactive
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <AlertCircle className="w-4 h-4 text-secondary-500" />
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-secondary-100 text-secondary-800 dark:bg-secondary-800 dark:text-secondary-300">
+                      Unknown
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <label className="text-sm font-medium text-secondary-500 dark:text-secondary-400">
                 Cursor Status
               </label>
-              <div className="flex items-center space-x-2">
-                <span
-                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                    deviceInfo.cursorRunning
-                      ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                      : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
-                  }`}
-                >
-                  {deviceInfo.cursorRunning ? "🟢 Running" : "🔴 Not Running"}
-                </span>
+              <div className="flex items-center space-x-2 mt-1">
+                {deviceInfo.cursorRunning ? (
+                  <div className="flex items-center space-x-2">
+                    <Monitor className="w-4 h-4 text-success-600" />
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-success-100 text-success-800 dark:bg-success-900/20 dark:text-success-400">
+                      Running
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <Monitor className="w-4 h-4 text-secondary-500" />
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-secondary-100 text-secondary-800 dark:bg-secondary-800 dark:text-secondary-300">
+                      Not Running
+                    </span>
+                  </div>
+                )}
               </div>
-            </div>
-            <div className="pt-2">
-              <Button
-                onClick={handleRefreshDeviceInfo}
-                variant="secondary"
-                disabled={loading}
-                className="w-full text-xs"
-              >
-                {loading ? "🔄 Refreshing..." : "🔄 Refresh Info"}
-              </Button>
             </div>
           </div>
         </Card>
 
         {/* User Information */}
-        <Card title="User Information">
+        <Card
+          title="User Information"
+          subtitle={
+            auth.isAuthenticated
+              ? "Your account details and usage"
+              : "Authenticate to access features"
+          }
+          variant="elevated"
+        >
           {auth.isAuthenticated && auth.accessKey ? (
             <UserKeyInfo
               accessKey={auth.accessKey}
@@ -295,99 +337,62 @@ const DashboardView: React.FC = () => {
 
         {/* Quick Change */}
         {auth.isAuthenticated && (
-          <Card title="Quick Change">
+          <Card
+            title="Quick Change"
+            subtitle="Get a fresh account instantly"
+            variant="elevated"
+          >
             <QuickChange
               onSuccess={() => {
-                setMessage({
-                  type: "success",
-                  text: "Account switched successfully! Please restart Cursor to use the new account.",
-                });
-                setTimeout(() => setMessage(null), 5000);
+                toast.showSuccess(
+                  "Account Switched",
+                  "Account switched successfully! Please restart Cursor to use the new account."
+                );
               }}
               onError={(error) => {
-                setMessage({ type: "error", text: error });
-                setTimeout(() => setMessage(null), 5000);
+                toast.showError("Switch Failed", error);
               }}
             />
           </Card>
         )}
       </div>
 
-      {/* Message Display */}
-      {message && (
-        <div
-          className={`fixed top-4 right-4 p-4 rounded-md shadow-lg z-50 ${
-            message.type === "success"
-              ? "bg-green-50 border border-green-200 text-green-800 dark:bg-green-900 dark:border-green-700 dark:text-green-200"
-              : "bg-red-50 border border-red-200 text-red-800 dark:bg-red-900 dark:border-red-700 dark:text-red-200"
-          }`}
-        >
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              {message.type === "success" ? (
-                <svg
-                  className="h-5 w-5 text-green-400"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              ) : (
-                <svg
-                  className="h-5 w-5 text-red-400"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              )}
-            </div>
-            <div className="ml-3">
-              <p className="text-sm">{message.text}</p>
-            </div>
-            <div className="ml-auto pl-3">
-              <button
-                onClick={() => setMessage(null)}
-                className="inline-flex text-gray-400 hover:text-gray-600 focus:outline-none"
-              >
-                <svg
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Quick Actions */}
-      <Card title="Quick Actions">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Button onClick={handleChangeMachineId} variant="secondary">
+      <Card
+        title="Quick Actions"
+        subtitle="Common operations and utilities"
+        variant="elevated"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Button
+            onClick={handleChangeMachineId}
+            variant="secondary"
+            icon={<RotateCcw size={16} />}
+            disabled={loading}
+          >
             Change Machine ID
           </Button>
-          <Button onClick={handleResetCursor} variant="primary" disabled={loading}>
-            {loading ? "🔄 Resetting..." : "🔄 Reset Cursor"}
+          <Button
+            onClick={handleResetCursor}
+            variant="primary"
+            disabled={loading}
+            icon={<Zap size={16} />}
+          >
+            Reset Cursor
           </Button>
         </div>
       </Card>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        loading={confirmDialog.loading}
+      />
     </div>
   );
 };

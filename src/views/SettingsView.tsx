@@ -2,13 +2,11 @@ import React, { useState } from "react";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import { useTheme } from "../hooks/useTheme";
-import CursorReset from "../components/CursorReset";
 
 const SettingsView: React.FC = () => {
   const { isDark, toggleTheme } = useTheme();
   const [autoStart, setAutoStart] = useState(false);
-  const [notifications, setNotifications] = useState(true);
-  const [language, setLanguage] = useState("en");
+  const [notifications, setNotifications] = useState(false);
 
   const handleSaveSettings = () => {
     console.log("Settings saved");
@@ -49,25 +47,6 @@ const SettingsView: React.FC = () => {
             <Button onClick={toggleTheme} variant="secondary" size="sm">
               {isDark ? "☀️ Light" : "🌙 Dark"}
             </Button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium text-gray-900 dark:text-white">
-                Language
-              </label>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Select your language
-              </p>
-            </div>
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-            >
-              <option value="en">English</option>
-              <option value="zh">中文</option>
-            </select>
           </div>
         </div>
       </Card>
@@ -119,44 +98,6 @@ const SettingsView: React.FC = () => {
                 }`}
               />
             </button>
-          </div>
-        </div>
-      </Card>
-
-      {/* Cursor Reset */}
-      <Card title="Cursor Reset">
-        <CursorReset onResetComplete={() => console.log("Reset completed!")} />
-      </Card>
-
-      {/* Data Management */}
-      <Card title="Data Management">
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium text-gray-900 dark:text-white">
-                Export Data
-              </label>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Export your accounts and settings
-              </p>
-            </div>
-            <Button onClick={handleExportData} variant="secondary" size="sm">
-              📤 Export
-            </Button>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium text-gray-900 dark:text-white">
-                Import Data
-              </label>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Import accounts and settings
-              </p>
-            </div>
-            <Button onClick={handleImportData} variant="secondary" size="sm">
-              📥 Import
-            </Button>
           </div>
         </div>
       </Card>
