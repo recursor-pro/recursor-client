@@ -40,6 +40,8 @@ const DashboardView: React.FC = () => {
     onConfirm: () => void;
     variant?: "danger" | "warning" | "info";
     loading?: boolean;
+    confirmText?: string;
+    cancelText?: string;
   }>({
     isOpen: false,
     title: "",
@@ -108,9 +110,6 @@ const DashboardView: React.FC = () => {
 
       // Show success message with details
       let successMessage = "Cursor reset completed successfully!";
-      if (result.details) {
-        successMessage += `\n\n• ${result.details.kill}\n• ${result.details.reset}\n• ${result.details.clean}\n• ${result.details.restore}`;
-      }
 
       toast.showSuccess("Reset Complete", successMessage, 8000);
 
@@ -141,24 +140,39 @@ const DashboardView: React.FC = () => {
         const isRunning = await window.electronAPI.checkCursorRunning();
 
         if (isRunning) {
-          // Show confirmation dialog for force kill
+          // Show confirmation dialog like client-sample does
           return new Promise<void>((resolve) => {
             setConfirmDialog({
               isOpen: true,
               title: "Cursor is Running",
               message:
-                "Do you want to automatically close Cursor to continue resetting Machine ID?",
+                "Cursor is currently running and needs to be closed to reset Machine ID.\n\n" +
+                "⚠️ Please save any unsaved work in Cursor before proceeding!\n\n" +
+                "Click 'Force Close & Reset' to automatically close Cursor and continue with the reset.",
               variant: "warning",
+              confirmText: "Force Close & Reset",
+              cancelText: "Cancel",
               onConfirm: async () => {
                 setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
-                await performMachineIdReset(true);
-                resolve();
+                try {
+                  // Automatically close Cursor and reset (like client-sample)
+                  await performMachineIdReset(true);
+                  resolve();
+                } catch (error) {
+                  console.error("Failed to reset machine ID:", error);
+                  toast.showError(
+                    "Reset Failed",
+                    `Failed to reset machine ID: ${(error as Error).message}`
+                  );
+                  resolve();
+                }
               },
             });
           });
         }
       }
 
+      // If Cursor is not running, proceed directly
       await performMachineIdReset(false);
     } catch (error) {
       console.error("Failed to reset machine ID:", error);
@@ -191,10 +205,7 @@ const DashboardView: React.FC = () => {
     setDeviceInfo(updatedInfo);
 
     // Show success message
-    toast.showSuccess(
-      "Machine ID Reset",
-      `Machine ID reset successfully!\n\nNew Machine ID: ${updatedInfo.machineId.substring(0, 8)}...`
-    );
+    toast.showSuccess("Machine ID Reset", `Machine ID reset successfully!`);
   };
 
   if (loading) {
@@ -392,6 +403,8 @@ const DashboardView: React.FC = () => {
         message={confirmDialog.message}
         variant={confirmDialog.variant}
         loading={confirmDialog.loading}
+        confirmText={confirmDialog.confirmText}
+        cancelText={confirmDialog.cancelText}
       />
     </div>
   );

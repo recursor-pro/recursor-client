@@ -148,41 +148,256 @@ function findMainJs(appDataDir: string): string | undefined {
   return undefined;
 }
 
-// Kill Cursor processes
+// Kill Cursor processes with retry logic
 async function killCursorProcesses(): Promise<string> {
   const platform = os.platform();
+  const maxAttempts = 3;
+  const retryDelay = 1000; // 1 second
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`Attempting to kill Cursor processes (attempt ${attempt}/${maxAttempts})...`);
+
+    // Get current running processes
+    const processes = await getCursorProcessIds();
+
+    if (processes.length === 0) {
+      console.log("No Cursor processes found, kill operation complete");
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a bit to ensure cleanup
+      return "✅ Cursor processes closed";
+    }
+
+    // Kill each process
+    for (const pid of processes) {
+      try {
+        await killSingleProcess(pid, platform);
+        await new Promise(resolve => setTimeout(resolve, 200)); // Small delay between kills
+      } catch (error) {
+        console.log(`Failed to kill process ${pid}:`, error);
+        // Continue with other processes
+      }
+    }
+
+    // Wait before checking again
+    await new Promise(resolve => setTimeout(resolve, retryDelay));
+
+    // Check if any processes remain
+    const remainingProcesses = await getCursorProcessIds();
+    if (remainingProcesses.length === 0) {
+      console.log("All Cursor processes successfully terminated");
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Final wait for cleanup
+      return "✅ Cursor processes closed";
+    }
+
+    if (attempt === maxAttempts) {
+      throw new Error("Failed to terminate all Cursor processes after maximum attempts");
+    }
+  }
+
+  return "✅ Cursor processes closed";
+}
+
+// Get Cursor process IDs
+async function getCursorProcessIds(): Promise<string[]> {
+  const platform = os.platform();
+
+  try {
+    switch (platform) {
+      case "win32":
+        return await getWindowsCursorProcessIds();
+      case "darwin":
+        return await getMacOSCursorProcessIds();
+      case "linux":
+        return await getLinuxCursorProcessIds();
+      default:
+        return [];
+    }
+  } catch (error) {
+    console.log("Error getting Cursor process IDs:", error);
+    return [];
+  }
+}
+
+// Windows-specific process ID retrieval
+async function getWindowsCursorProcessIds(): Promise<string[]> {
+  try {
+    const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq Cursor.exe" /FO CSV /NH');
+    const lines = stdout.trim().split('\n').filter(line => line.includes('Cursor.exe'));
+    const pids: string[] = [];
+
+    for (const line of lines) {
+      const match = line.match(/"Cursor\.exe","(\d+)"/);
+      if (match) {
+        pids.push(match[1]);
+      }
+    }
+
+    return pids;
+  } catch {
+    return [];
+  }
+}
+
+// macOS-specific process ID retrieval
+async function getMacOSCursorProcessIds(): Promise<string[]> {
+  try {
+    const { stdout } = await execAsync("pgrep -f '/Applications/Cursor.app/Contents/MacOS/Cursor'");
+    const pids = stdout.trim().split('\n').filter(pid => pid.trim());
+
+    // Validate each PID to ensure it's actually a Cursor process
+    const validPids: string[] = [];
+    for (const pid of pids) {
+      try {
+        const { stdout: processInfo } = await execAsync(`ps -p ${pid.trim()} -o args=`);
+        if (processInfo.includes('/Applications/Cursor.app/Contents/MacOS/Cursor') &&
+            !processInfo.includes('--type=') &&
+            !processInfo.includes('Helper')) {
+          validPids.push(pid.trim());
+        }
+      } catch {
+        // Continue checking other PIDs
+      }
+    }
+
+    return validPids;
+  } catch {
+    return [];
+  }
+}
+
+// Linux-specific process ID retrieval
+async function getLinuxCursorProcessIds(): Promise<string[]> {
+  const commands = [
+    "pgrep -f '/usr/bin/cursor'",
+    "pgrep -f '/opt/cursor'",
+    "pgrep -f '/snap/cursor'",
+    "pgrep -x cursor"
+  ];
+
+  for (const command of commands) {
+    try {
+      const { stdout } = await execAsync(command);
+      const pids = stdout.trim().split('\n').filter(pid => pid.trim());
+      if (pids.length > 0) {
+        return pids;
+      }
+    } catch {
+      // Try next command
+    }
+  }
+
+  return [];
+}
+
+// Kill a single process by PID
+async function killSingleProcess(pid: string, platform: string): Promise<void> {
   let killCommand: string;
 
   switch (platform) {
     case "win32":
-      killCommand = "taskkill /F /IM Cursor.exe";
+      killCommand = `taskkill /F /PID ${pid}`;
       break;
     case "darwin":
-      killCommand = "pkill -f Cursor";
-      break;
     case "linux":
-      killCommand = "pkill -f cursor";
+      killCommand = `kill -9 ${pid}`;
       break;
     default:
       throw new Error(`Unsupported platform: ${platform}`);
   }
 
-  try {
-    await execAsync(killCommand);
-    return "✅ Cursor processes closed";
-  } catch (error) {
-    // Process might not be running, which is fine
-    return "ℹ️ No Cursor processes running";
-  }
+  await execAsync(killCommand);
 }
 
 // Helper function to check if Cursor is running (like client-sample)
 async function isCursorRunning(): Promise<boolean> {
+  const platform = os.platform();
+
   try {
-    const result = await execAsync("pgrep -f Cursor");
-    return result.stdout.trim().length > 0;
+    switch (platform) {
+      case "win32":
+        return await checkCursorRunningWindows();
+      case "darwin":
+        return await checkCursorRunningMacOS();
+      case "linux":
+        return await checkCursorRunningLinux();
+      default:
+        return false;
+    }
   } catch (error) {
-    // pgrep returns non-zero exit code when no processes found
+    console.log("Error checking Cursor status:", error);
+    return false;
+  }
+}
+
+// Windows-specific Cursor detection
+async function checkCursorRunningWindows(): Promise<boolean> {
+  try {
+    const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq Cursor.exe" /FO CSV /NH');
+    const lines = stdout.trim().split('\n').filter(line => line.includes('Cursor.exe'));
+    return lines.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// macOS-specific Cursor detection
+async function checkCursorRunningMacOS(): Promise<boolean> {
+  try {
+    // First check for main Cursor app process
+    const { stdout } = await execAsync("pgrep -f '/Applications/Cursor.app/Contents/MacOS/Cursor'");
+    const pids = stdout.trim().split('\n').filter(pid => pid.trim());
+
+    if (pids.length === 0) {
+      return false;
+    }
+
+    // Validate each PID to ensure it's actually the main Cursor process
+    for (const pid of pids) {
+      try {
+        const { stdout: processInfo } = await execAsync(`ps -p ${pid.trim()} -o comm=,args=`);
+        const lines = processInfo.trim().split('\n');
+
+        for (const line of lines) {
+          // Check if it's the main Cursor executable (not helper processes)
+          if (line.includes('/Applications/Cursor.app/Contents/MacOS/Cursor') &&
+              !line.includes('--type=') && // Exclude renderer/utility processes
+              !line.includes('Helper')) {   // Exclude helper processes
+            return true;
+          }
+        }
+      } catch {
+        // Continue checking other PIDs
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// Linux-specific Cursor detection
+async function checkCursorRunningLinux(): Promise<boolean> {
+  try {
+    const commands = [
+      "pgrep -f '/usr/bin/cursor'",
+      "pgrep -f '/opt/cursor'",
+      "pgrep -f '/snap/cursor'",
+      "pgrep -x cursor"
+    ];
+
+    for (const command of commands) {
+      try {
+        const { stdout } = await execAsync(command);
+        if (stdout.trim().length > 0) {
+          return true;
+        }
+      } catch {
+        // Try next command
+      }
+    }
+
+    return false;
+  } catch {
     return false;
   }
 }
@@ -313,14 +528,20 @@ async function resetMachineIds(
           "Cursor is currently running. Please close Cursor first or use force kill option."
         );
       }
-      console.log(
-        "Cursor is running, but force kill is enabled. Proceeding with kill..."
-      );
-    }
+      console.log("Cursor is running, force killing processes...");
 
-    // 2. Force kill Cursor if requested (like client-sample)
-    if (forceKill) {
+      // 2. Force kill Cursor if requested (like client-sample)
       await killCursorProcesses();
+
+      // 3. Wait for processes to fully terminate
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // 4. Verify all processes are closed
+      if (await isCursorRunning()) {
+        throw new Error("Failed to close all Cursor processes. Please close Cursor manually and try again.");
+      }
+
+      console.log("All Cursor processes successfully terminated");
     }
 
     // 3. Cleanup database entries (like client-sample)
@@ -555,54 +776,7 @@ async function checkHookStatus(): Promise<boolean> {
   }
 }
 
-// Check if Cursor is currently running
-async function checkCursorRunning(): Promise<boolean> {
-  const platform = os.platform();
-  let checkCommand: string;
 
-  switch (platform) {
-    case "win32":
-      checkCommand = 'tasklist /FI "IMAGENAME eq Cursor.exe"';
-      break;
-    case "darwin":
-      // More specific check for Cursor app, not system services
-      checkCommand = "pgrep -f '/Applications/Cursor.app'";
-      break;
-    case "linux":
-      checkCommand = "pgrep -f '/usr/bin/cursor' || pgrep -f '/opt/cursor'";
-      break;
-    default:
-      return false;
-  }
-
-  try {
-    const { stdout } = await execAsync(checkCommand);
-    const output = stdout.trim();
-
-    // Additional validation for macOS to ensure it's actually Cursor app
-    if (platform === "darwin" && output) {
-      // Get all PIDs and validate each one to find the main Cursor process
-      const pids = output.split("\n").filter((pid) => pid.trim());
-
-      for (const pid of pids) {
-        try {
-          const validateCommand = `ps -p ${pid.trim()} -o comm= | grep -E '(Cursor$|/Cursor$)'`;
-          const { stdout: validateOutput } = await execAsync(validateCommand);
-          if (validateOutput.trim().length > 0) {
-            return true; // Found main Cursor process
-          }
-        } catch {
-          // Continue checking other PIDs
-        }
-      }
-      return false;
-    }
-
-    return output.length > 0;
-  } catch (error) {
-    return false;
-  }
-}
 
 // Get cursor token from storage
 async function getCursorToken(): Promise<string> {
@@ -897,7 +1071,7 @@ export function setupIpcHandlers() {
   });
 
   ipcMain.handle("check-cursor-running", async () => {
-    return await checkCursorRunning();
+    return await isCursorRunning();
   });
 
   ipcMain.handle("get-cursor-token", async () => {
