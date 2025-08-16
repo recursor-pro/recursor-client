@@ -5,6 +5,7 @@ import * as os from "os";
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as crypto from "crypto";
+import * as https from "https";
 
 const execAsync = promisify(exec);
 
@@ -330,7 +331,6 @@ async function resetMachineIds(
       ? { ...generateNewIds(), "telemetry.devDeviceId": customDeviceId }
       : generateNewIds();
 
-
     // 5. Update storage.json (like client-sample)
     await updateStorageJson(paths, newIds);
 
@@ -491,9 +491,12 @@ async function getMachineIds(): Promise<{
               case 2: // Token
                 if (!result.cursorToken) {
                   result.cursorToken = value;
-                  console.log("Token found in database:", value.substring(0, 30) + "...");
+                  console.log(
+                    "Token found in database:",
+                    value.substring(0, 30) + "..."
+                  );
                   console.log("Token length:", value.length);
-                  console.log("Token includes '::':", value.includes('::'));
+                  console.log("Token includes '::':", value.includes("::"));
                 }
                 break;
             }
@@ -621,36 +624,52 @@ async function getCursorToken(): Promise<string> {
           `sqlite3 "${paths.database}" "${query}"`
         );
 
-        console.log("Database query result:", stdout ? stdout.substring(0, 200) + "..." : "empty");
+        console.log(
+          "Database query result:",
+          stdout ? stdout.substring(0, 200) + "..." : "empty"
+        );
 
         if (stdout.trim()) {
-          const lines = stdout.trim().split('\n');
+          const lines = stdout.trim().split("\n");
           for (const line of lines) {
             try {
               // Split by first | to separate key and value
-              const parts = line.split('|');
+              const parts = line.split("|");
               if (parts.length >= 2) {
                 const key = parts[0];
-                const value = parts.slice(1).join('|'); // Rejoin in case value contains |
+                const value = parts.slice(1).join("|"); // Rejoin in case value contains |
                 console.log("Database key:", key);
-                console.log("Database value preview:", value.substring(0, 100) + "...");
+                console.log(
+                  "Database value preview:",
+                  value.substring(0, 100) + "..."
+                );
 
                 const authData = JSON.parse(value);
                 console.log("Parsed auth data keys:", Object.keys(authData));
                 if (authData.token) {
-                  console.log("Token from database:", authData.token.substring(0, 30) + "...");
-                  console.log("Token includes '::':", authData.token.includes('::'));
+                  console.log(
+                    "Token from database:",
+                    authData.token.substring(0, 30) + "..."
+                  );
+                  console.log(
+                    "Token includes '::':",
+                    authData.token.includes("::")
+                  );
                   console.log("Token length:", authData.token.length);
 
                   // Return any token from database, even if it doesn't have :: format
-                  if (authData.token !== 'mock-token') {
+                  if (authData.token !== "mock-token") {
                     console.log("Found real token from database");
                     return authData.token;
                   }
                 }
               }
             } catch (error) {
-              console.log("Failed to parse line:", line.substring(0, 50) + "...", error.message);
+              console.log(
+                "Failed to parse line:",
+                line.substring(0, 50) + "...",
+                error.message
+              );
             }
           }
         }
@@ -673,13 +692,23 @@ async function getCursorToken(): Promise<string> {
         try {
           const authData = storageData["workos.cursor.auth"];
           token = authData.token || authData.refreshToken || "";
-          console.log("Token from storage.json:", token ? token.substring(0, 20) + "..." : "none");
+          console.log(
+            "Token from storage.json:",
+            token ? token.substring(0, 20) + "..." : "none"
+          );
         } catch (error) {
           console.log("Error accessing WorkOS auth for token:", error);
         }
       }
 
-      console.log("Final token format check:", token ? (token.includes('::') ? 'valid format' : 'invalid format') : 'no token');
+      console.log(
+        "Final token format check:",
+        token
+          ? token.includes("::")
+            ? "valid format"
+            : "invalid format"
+          : "no token"
+      );
       return token || "";
     }
   } catch (error) {
@@ -689,7 +718,102 @@ async function getCursorToken(): Promise<string> {
   return "";
 }
 
+// Switch Cursor account (following client-sample logic)
+async function switchCursorAccount(options: {
+  email: string;
+  token: string;
+  forceKill?: boolean;
+}): Promise<string> {
+  try {
+    const { email, token, forceKill = false } = options;
+    console.log("Starting account switch for:", email);
 
+    // 1. Check if Cursor is running
+    if (await isCursorRunning()) {
+      if (!forceKill) {
+        throw new Error(
+          "Cursor is currently running. Please close Cursor first or use force kill option."
+        );
+      }
+      console.log("Cursor is running, force killing...");
+      await killCursorProcesses();
+      // Wait for processes to fully terminate
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    // 2. Get Cursor paths
+    const paths = getCursorPaths();
+
+    // 3. Update storage.json with new account info
+    let storageContent: any = {};
+
+    // Read existing storage.json if it exists
+    if (fs.existsSync(paths.storage)) {
+      try {
+        const content = fs.readFileSync(paths.storage, "utf8");
+        storageContent = JSON.parse(content);
+      } catch (error) {
+        console.warn("Could not parse storage.json, creating new one");
+        storageContent = {};
+      }
+    }
+
+    // Update with new account credentials (following client-sample pattern)
+    storageContent["workos.cursor.auth"] = {
+      email: email,
+      token: token,
+      refreshToken: token, // Some systems use refreshToken
+    };
+
+    // Also update legacy auth fields for compatibility
+    storageContent["cursorAuth/cachedEmail"] = email;
+    storageContent["cursorAuth/accessToken"] = token;
+    storageContent["cursorAuth/refreshToken"] = token;
+
+    // Ensure directory exists
+    const storageDir = path.dirname(paths.storage);
+    if (!fs.existsSync(storageDir)) {
+      fs.mkdirSync(storageDir, { recursive: true });
+    }
+
+    // Write updated storage.json
+    fs.writeFileSync(paths.storage, JSON.stringify(storageContent, null, 2));
+    console.log("Successfully updated storage.json with new account");
+
+    // 4. Update SQLite database if it exists
+    if (fs.existsSync(paths.database)) {
+      try {
+        const authData = JSON.stringify({
+          email: email,
+          token: token,
+          refreshToken: token,
+        });
+
+        const updates = [
+          { key: "workos.cursor.auth", value: authData },
+          { key: "cursorAuth/cachedEmail", value: email },
+          { key: "cursorAuth/accessToken", value: token },
+          { key: "cursorAuth/refreshToken", value: token },
+        ];
+
+        for (const update of updates) {
+          const query = `INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('${update.key}', '${update.value.replace(/'/g, "''")}');`;
+          await execAsync(`sqlite3 "${paths.database}" "${query}"`);
+        }
+
+        console.log("Successfully updated database with new account");
+      } catch (error) {
+        console.log("Database update failed:", error);
+        // Don't throw error, storage.json update is sufficient
+      }
+    }
+
+    return `✅ Successfully switched to account: ${email}`;
+  } catch (error) {
+    console.error("Error switching account:", error);
+    throw new Error("Failed to switch account: " + (error as Error).message);
+  }
+}
 
 export function setupIpcHandlers() {
   // Main reset handler
@@ -780,5 +904,65 @@ export function setupIpcHandlers() {
     return await getCursorToken();
   });
 
+  // Account switching handler
+  ipcMain.handle("switch-cursor-account", async (event, options) => {
+    return await switchCursorAccount(options);
+  });
 
+  // API proxy handler for authentication
+  ipcMain.handle(
+    "api-request",
+    async (event, { url, method, body, headers }) => {
+      return new Promise((resolve, reject) => {
+        const urlObj = new URL(url);
+        const options = {
+          hostname: urlObj.hostname,
+          port: urlObj.port || (urlObj.protocol === "https:" ? 443 : 80),
+          path: urlObj.pathname + urlObj.search,
+          method: method || "GET",
+          headers: {
+            "Content-Type": "application/json",
+            ...headers,
+          },
+        };
+
+        const req = https.request(options, (res) => {
+          let data = "";
+
+          res.on("data", (chunk) => {
+            data += chunk;
+          });
+
+          res.on("end", () => {
+            try {
+              const response = {
+                status: res.statusCode,
+                statusText: res.statusMessage,
+                headers: res.headers,
+                data: data ? JSON.parse(data) : null,
+              };
+              resolve(response);
+            } catch (error) {
+              resolve({
+                status: res.statusCode,
+                statusText: res.statusMessage,
+                headers: res.headers,
+                data: data,
+              });
+            }
+          });
+        });
+
+        req.on("error", (error) => {
+          reject(error);
+        });
+
+        if (body) {
+          req.write(typeof body === "string" ? body : JSON.stringify(body));
+        }
+
+        req.end();
+      });
+    }
+  );
 }

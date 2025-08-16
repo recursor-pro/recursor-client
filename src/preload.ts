@@ -18,4 +18,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkHookStatus: () => ipcRenderer.invoke('check-hook-status'),
   checkCursorRunning: () => ipcRenderer.invoke('check-cursor-running'),
   getCursorToken: () => ipcRenderer.invoke('get-cursor-token'),
+  // API proxy
+  apiRequest: (options: any) => ipcRenderer.invoke('api-request', options),
+  // Account switching
+  switchCursorAccount: (options: { email: string; token: string; forceKill?: boolean }) =>
+    ipcRenderer.invoke('switch-cursor-account', options),
 });

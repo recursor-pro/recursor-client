@@ -18,7 +18,22 @@ const createWindow = (): void => {
     width: 800,
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      nodeIntegration: false,
+      contextIsolation: true,
+      webSecurity: true, // Enable web security but allow specific domains
     },
+  });
+
+  // Set CSP header before loading content
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://recursor.pro https://*.recursor.pro; img-src 'self' data: https:; font-src 'self' data:;"
+        ]
+      }
+    });
   });
 
   // and load the index.html of the app.

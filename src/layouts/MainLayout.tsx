@@ -9,7 +9,6 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import ThemeToggle from "../components/ThemeToggle";
 import DashboardView from "../views/DashboardView";
-import HistoryView from "../views/HistoryView";
 import AccountsView from "../views/AccountsView";
 import SettingsView from "../views/SettingsView";
 import type { MenuItem } from "../types";
@@ -32,12 +31,6 @@ const MainLayout: React.FC = () => {
       label: "Account History",
       icon: "👥",
       path: "/accounts",
-    },
-    {
-      key: "history",
-      label: "History",
-      icon: "📝",
-      path: "/history",
     },
     {
       key: "settings",
@@ -117,7 +110,6 @@ const MainLayout: React.FC = () => {
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardView />} />
-            <Route path="/history" element={<HistoryView />} />
             <Route path="/accounts" element={<AccountsView />} />
             <Route path="/settings" element={<SettingsView />} />
           </Routes>

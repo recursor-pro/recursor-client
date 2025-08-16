@@ -7,6 +7,23 @@ export interface UserInfo {
   dailyUsage: number;
 }
 
+// Access Key types for authentication
+export interface AccessKeyInfo {
+  id: string;
+  name: string;
+  maxRequests: number;
+  currentRequests: number;
+  expiresAt: Date | null;
+  status: string;
+}
+
+export interface AuthState {
+  isAuthenticated: boolean;
+  accessKey: AccessKeyInfo | null;
+  loading: boolean;
+  error: string | null;
+}
+
 export interface CursorUserInfo {
   email: string;
   username: string;
@@ -45,7 +62,7 @@ export interface ThemeConfig {
 
 export interface AppState {
   isLoading: boolean;
-  currentPlatform: 'windows' | 'macos' | 'linux';
+  currentPlatform: "windows" | "macos" | "linux";
 }
 
 export interface HistoryRecord {
@@ -53,14 +70,14 @@ export interface HistoryRecord {
   action: string;
   timestamp: string;
   details: string;
-  status: 'success' | 'error' | 'pending';
+  status: "success" | "error" | "pending";
 }
 
 export interface Account {
   id: string;
   email: string;
   lastUsed: string;
-  status: 'active' | 'inactive' | 'expired';
+  status: "active" | "inactive" | "expired";
 }
 
 // Electron API types
@@ -80,7 +97,10 @@ declare global {
       }>;
       getCursorPaths: () => Promise<any>;
       killCursorProcesses: () => Promise<string>;
-      resetMachineIds: (forceKill?: boolean, customDeviceId?: string) => Promise<string>;
+      resetMachineIds: (
+        forceKill?: boolean,
+        customDeviceId?: string
+      ) => Promise<string>;
       cleanDatabase: (paths: any) => Promise<string>;
       restoreMainJs: (paths: any) => Promise<string>;
       // Device info APIs
@@ -92,6 +112,27 @@ declare global {
       checkHookStatus: () => Promise<boolean | null>;
       checkCursorRunning: () => Promise<boolean>;
       getCursorToken: () => Promise<string>;
+      // API proxy
+      apiRequest: (options: {
+        url: string;
+        method?: string;
+        body?: any;
+        headers?: Record<string, string>;
+      }) => Promise<{
+        status: number;
+        statusText: string;
+        headers: any;
+        data: any;
+      }>;
+      // Account switching
+      switchCursorAccount: (options: {
+        email: string;
+        token: string;
+        forceKill?: boolean;
+      }) => Promise<{
+        success: boolean;
+        error?: string;
+      }>;
     };
   }
 }
