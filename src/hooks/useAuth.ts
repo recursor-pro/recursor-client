@@ -30,6 +30,15 @@ export function useAuth() {
     authService.logout();
   };
 
+  const validateAndLogoutIfInvalid = async () => {
+    try {
+      return await authService.validateAndLogoutIfInvalid();
+    } catch (error) {
+      console.error("Failed to validate access key:", error);
+      return false;
+    }
+  };
+
   const copyKey = async () => {
     try {
       await authService.copyKeyToClipboard();
@@ -88,5 +97,6 @@ export function useAuth() {
     copyKey,
     getServiceAccount,
     switchAccount,
+    validateAndLogoutIfInvalid,
   };
 }

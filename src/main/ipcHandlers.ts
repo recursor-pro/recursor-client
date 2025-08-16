@@ -6,6 +6,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as crypto from "crypto";
 import * as https from "https";
+import Database from "better-sqlite3";
 
 const execAsync = promisify(exec);
 
@@ -918,63 +919,56 @@ async function switchCursorAccount(options: {
     // 2. Get Cursor paths
     const paths = getCursorPaths();
 
-    // 3. Update storage.json with new account info
-    let storageContent: any = {};
+    // 3. Note: client-sample does NOT update storage.json during account switch
+    // They only update storage.json during machine ID reset
+    // So we skip storage.json update to match their behavior exactly
+    console.log("Skipping storage.json update (following client-sample pattern)");
 
-    // Read existing storage.json if it exists
-    if (fs.existsSync(paths.storage)) {
-      try {
-        const content = fs.readFileSync(paths.storage, "utf8");
-        storageContent = JSON.parse(content);
-      } catch (error) {
-        console.warn("Could not parse storage.json, creating new one");
-        storageContent = {};
-      }
-    }
-
-    // Update with new account credentials (following client-sample pattern)
-    storageContent["workos.cursor.auth"] = {
-      email: email,
-      token: token,
-      refreshToken: token, // Some systems use refreshToken
-    };
-
-    // Also update legacy auth fields for compatibility
-    storageContent["cursorAuth/cachedEmail"] = email;
-    storageContent["cursorAuth/accessToken"] = token;
-    storageContent["cursorAuth/refreshToken"] = token;
-
-    // Ensure directory exists
-    const storageDir = path.dirname(paths.storage);
-    if (!fs.existsSync(storageDir)) {
-      fs.mkdirSync(storageDir, { recursive: true });
-    }
-
-    // Write updated storage.json
-    fs.writeFileSync(paths.storage, JSON.stringify(storageContent, null, 2));
-    console.log("Successfully updated storage.json with new account");
-
-    // 4. Update SQLite database if it exists
+    // 4. Update SQLite database ONLY (following client-sample pattern exactly)
     if (fs.existsSync(paths.database)) {
       try {
-        const authData = JSON.stringify({
-          email: email,
-          token: token,
-          refreshToken: token,
-        });
+        console.log("Updating Cursor database with new account info...");
 
+        // Process token - split by %3A%3A and take second part if exists (client-sample logic)
+        const processedToken = token.includes('%3A%3A')
+          ? token.split('%3A%3A')[1] || token
+          : token;
+
+        // Open database connection
+        const db = new Database(paths.database);
+
+        // Prepare the updates following client-sample pattern exactly:
+        // ("cursor.email", email.clone()),
+        // ("cursor.accessToken", processed_token.clone()),
+        // ("cursorAuth/refreshToken", processed_token.clone()),
+        // ("cursorAuth/accessToken", processed_token.clone()),
+        // ("cursorAuth/cachedEmail", email.clone()),
         const updates = [
-          { key: "workos.cursor.auth", value: authData },
+          { key: "cursor.email", value: email },
+          { key: "cursor.accessToken", value: processedToken },
+          { key: "cursorAuth/refreshToken", value: processedToken },
+          { key: "cursorAuth/accessToken", value: processedToken },
           { key: "cursorAuth/cachedEmail", value: email },
-          { key: "cursorAuth/accessToken", value: token },
-          { key: "cursorAuth/refreshToken", value: token },
         ];
 
+        // Update each key-value pair
+        const updateStmt = db.prepare("UPDATE ItemTable SET value = ? WHERE key = ?");
+        const insertStmt = db.prepare("INSERT INTO ItemTable (key, value) VALUES (?, ?)");
+
         for (const update of updates) {
-          const query = `INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('${update.key}', '${update.value.replace(/'/g, "''")}');`;
-          await execAsync(`sqlite3 "${paths.database}" "${query}"`);
+          console.log(`Updating database key: ${update.key}`);
+
+          // Try to update first
+          const result = updateStmt.run(update.value, update.key);
+
+          // If no rows were updated, insert new record
+          if (result.changes === 0) {
+            console.log(`Key ${update.key} not found, inserting new record`);
+            insertStmt.run(update.key, update.value);
+          }
         }
 
+        db.close();
         console.log("Successfully updated database with new account");
       } catch (error) {
         console.log("Database update failed:", error);

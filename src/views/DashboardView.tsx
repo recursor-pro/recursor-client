@@ -51,11 +51,24 @@ const DashboardView: React.FC = () => {
     },
   });
 
-  // Load device info on component mount
+  // Load device info and validate auth on component mount
   useEffect(() => {
     const loadDeviceInfo = async () => {
       try {
         setLoading(true);
+
+        // Validate access key and auto-logout if invalid/expired
+        if (auth.isAuthenticated) {
+          const isValid = await auth.validateAndLogoutIfInvalid();
+          if (!isValid) {
+            toast.showError(
+              "Authentication Failed",
+              "Your access key has expired or is invalid. Please login again."
+            );
+            return;
+          }
+        }
+
         const info = await deviceService.getDeviceInfo();
         setDeviceInfo(info);
       } catch (error) {
@@ -67,12 +80,25 @@ const DashboardView: React.FC = () => {
     };
 
     loadDeviceInfo();
-  }, []);
+  }, [auth.isAuthenticated]); // Re-run when auth state changes
 
-  // Refresh device info
+  // Refresh device info and validate auth
   const handleRefreshDeviceInfo = async () => {
     try {
       setLoading(true);
+
+      // Validate access key and auto-logout if invalid/expired
+      if (auth.isAuthenticated) {
+        const isValid = await auth.validateAndLogoutIfInvalid();
+        if (!isValid) {
+          toast.showError(
+            "Authentication Failed",
+            "Your access key has expired or is invalid. Please login again."
+          );
+          return;
+        }
+      }
+
       const info = await deviceService.refreshDeviceInfo();
       setDeviceInfo(info);
     } catch (error) {
@@ -106,10 +132,10 @@ const DashboardView: React.FC = () => {
       }
 
       // Perform the reset using the existing API
-      const result = await window.electronAPI.resetCursor({});
+      await window.electronAPI.resetCursor({});
 
       // Show success message with details
-      let successMessage = "Cursor reset completed successfully!";
+      const successMessage = "Cursor reset completed successfully!";
 
       toast.showSuccess("Reset Complete", successMessage, 8000);
 
@@ -150,7 +176,7 @@ const DashboardView: React.FC = () => {
                 "⚠️ Please save any unsaved work in Cursor before proceeding!\n\n" +
                 "Click 'Force Close & Reset' to automatically close Cursor and continue with the reset.",
               variant: "warning",
-              confirmText: "Force Close & Reset",
+              confirmText: "Close Cursor & Continue",
               cancelText: "Cancel",
               onConfirm: async () => {
                 setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
@@ -354,11 +380,19 @@ const DashboardView: React.FC = () => {
             variant="elevated"
           >
             <QuickChange
-              onSuccess={() => {
+              onAccountObtained={async () => {
+                // Refetch access key info to update usage after getting new account
+                if (auth.isAuthenticated) {
+                  await auth.validateAndLogoutIfInvalid();
+                }
+              }}
+              onSuccess={async () => {
                 toast.showSuccess(
                   "Account Switched",
-                  "Account switched successfully! Please restart Cursor to use the new account."
+                  "Account switched successfully!"
                 );
+                // Refetch device info to show updated account information
+                await handleRefreshDeviceInfo();
               }}
               onError={(error) => {
                 toast.showError("Switch Failed", error);

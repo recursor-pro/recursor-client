@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import Card from "../components/Card";
 import Button from "../components/Button";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { useAuth } from "../hooks/useAuth";
+import { useToast } from "../components/ToastContainer";
 
 interface ServiceAccount {
   id: string;
@@ -23,7 +25,16 @@ const AccountsView: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [totalAccounts, setTotalAccounts] = useState(0);
   const [limit] = useState(10); // Items per page
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    account: ServiceAccount | null;
+  }>({
+    isOpen: false,
+    account: null,
+  });
+
   const auth = useAuth();
+  const toast = useToast();
 
   const fetchServiceAccounts = async (page: number = currentPage) => {
     if (!auth.isAuthenticated || !auth.accessKey?.id) {
@@ -35,6 +46,16 @@ const AccountsView: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+
+      // Validate access key and auto-logout if invalid/expired
+      const isValid = await auth.validateAndLogoutIfInvalid();
+      if (!isValid) {
+        setError(
+          "Your access key has expired or is invalid. Please login again."
+        );
+        setLoading(false);
+        return;
+      }
 
       // Build query params
       const queryParams = new URLSearchParams({
@@ -106,22 +127,18 @@ const AccountsView: React.FC = () => {
     setSwitchingId(account.id);
     try {
       // Check if Cursor is running first
-      let shouldForceKill = forceKill;
+      const shouldForceKill = forceKill;
       if (!forceKill && window.electronAPI) {
         const isRunning = await window.electronAPI.checkCursorRunning();
 
         if (isRunning) {
-          // Ask user if they want to force kill Cursor if it's running
-          shouldForceKill = window.confirm(
-            `⚠️ Cursor is Running!\n\n` +
-              `Do you want to automatically close Cursor to switch to account "${account.email}"?\n\n` +
-              `Click OK to close Cursor and continue, or Cancel to abort.`
-          );
-
-          if (!shouldForceKill) {
-            setSwitchingId(null);
-            return; // User cancelled
-          }
+          // Show confirmation dialog instead of window.confirm
+          setConfirmDialog({
+            isOpen: true,
+            account: account,
+          });
+          setSwitchingId(null); // Reset switching state until user confirms
+          return;
         }
       }
 
@@ -132,8 +149,7 @@ const AccountsView: React.FC = () => {
       });
 
       if (result.success) {
-        // Show success message (you can add toast notification here)
-        console.log("Successfully switched to account:", account.email);
+        toast.showSuccess("Account Switched", "Account switched successfully!");
       } else {
         setError(result.error || "Failed to switch account");
       }
@@ -144,6 +160,38 @@ const AccountsView: React.FC = () => {
     } finally {
       setSwitchingId(null);
     }
+  };
+
+  const handleConfirmForceKill = async () => {
+    const account = confirmDialog.account;
+    if (!account) return;
+
+    setConfirmDialog({ isOpen: false, account: null });
+    setSwitchingId(account.id);
+
+    try {
+      const result = await auth.switchAccount({
+        email: account.email,
+        token: account.token,
+        forceKill: true,
+      });
+
+      if (result.success) {
+        toast.showSuccess("Account Switched", "Account switched successfully!");
+      } else {
+        setError(result.error || "Failed to switch account");
+      }
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "Failed to switch account"
+      );
+    } finally {
+      setSwitchingId(null);
+    }
+  };
+
+  const handleCancelForceKill = () => {
+    setConfirmDialog({ isOpen: false, account: null });
   };
 
   const getStatusColor = (status: string) => {
@@ -247,9 +295,7 @@ const AccountsView: React.FC = () => {
                         size="sm"
                         disabled={switchingId === account.id}
                       >
-                        {switchingId === account.id
-                          ? "Switching..."
-                          : "Switch"}
+                        {switchingId === account.id ? "Switching..." : "Switch"}
                       </Button>
                     </div>
                   </div>
@@ -335,6 +381,23 @@ const AccountsView: React.FC = () => {
           </div>
         </Card>
       </div>
+
+      {/* Force Kill Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={handleCancelForceKill}
+        onConfirm={handleConfirmForceKill}
+        title="⚠️ Cursor is Running"
+        message={
+          confirmDialog.account
+            ? `Do you want to automatically close Cursor to switch to account "${confirmDialog.account.email}"?\n\nClick Confirm to close Cursor and continue, or Cancel to abort.`
+            : ""
+        }
+        variant="warning"
+        loading={switchingId === confirmDialog.account?.id}
+        confirmText="Close Cursor & Continue"
+        cancelText="Cancel"
+      />
     </div>
   );
 };

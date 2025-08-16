@@ -247,6 +247,67 @@ export class AuthService {
     }
   }
 
+  // Validate current access key by making an API call
+  public async validateAccessKey(): Promise<boolean> {
+    if (!this.authState.accessKey) {
+      return false;
+    }
+
+    try {
+      // Use the auth endpoint to validate the key
+      const response = await fetch(`${BASE_URL}${AUTH_ENDPOINT}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ keyId: this.authState.accessKey.id }),
+      });
+
+      if (!response.ok) {
+        // Key is invalid or expired
+        return false;
+      }
+
+      const accessKey: AccessKeyInfo = await response.json();
+
+      // Update the access key info with fresh data
+      this.updateState({
+        isAuthenticated: true,
+        accessKey,
+        loading: false,
+        error: null,
+      });
+
+      this.saveToStorage();
+      return true;
+    } catch (error) {
+      console.error("Failed to validate access key:", error);
+      return false;
+    }
+  }
+
+  // Validate and auto-logout if invalid
+  public async validateAndLogoutIfInvalid(): Promise<boolean> {
+    if (!this.authState.accessKey) {
+      return false;
+    }
+
+    // Check if key is expired locally first
+    if (this.isExpired()) {
+      this.logout();
+      return false;
+    }
+
+    // Validate with server
+    const isValid = await this.validateAccessKey();
+    if (!isValid) {
+      this.logout();
+      return false;
+    }
+
+    return true;
+  }
+
   // Get service account for quick change
   public async getServiceAccount(): Promise<{ email: string; token: string }> {
     if (!this.authState.accessKey) {
@@ -274,15 +335,20 @@ export class AuthService {
 
       const serviceAccountData = response.data;
       if (
-        !serviceAccountData?.serviceAccount?.email ||
-        !serviceAccountData?.serviceAccount?.token
+        !serviceAccountData?.serviceAccount?.email
       ) {
-        throw new Error("Invalid service account response");
+        throw new Error("Invalid service account response - missing email");
+      }
+
+      // Token can be null, so we need to handle that case
+      const token = serviceAccountData.serviceAccount.token;
+      if (!token) {
+        throw new Error("Service account has no token available");
       }
 
       return {
         email: serviceAccountData.serviceAccount.email,
-        token: serviceAccountData.serviceAccount.token,
+        token: token,
       };
     } catch (error) {
       const errorMessage =

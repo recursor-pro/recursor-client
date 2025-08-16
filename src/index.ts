@@ -31,7 +31,7 @@ const createWindow = (): void => {
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://recursor.pro https://*.recursor.pro; img-src 'self' data: https:; font-src 'self' data:;"
+          "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://recursor.pro https://*.recursor.pro; img-src 'self' data: https:; font-src 'self' data: https://fonts.gstatic.com;"
         ]
       }
     });
