@@ -249,7 +249,7 @@ const AccountsView: React.FC = () => {
                       >
                         {switchingId === account.id
                           ? "Switching..."
-                          : "Switch Account"}
+                          : "Switch"}
                       </Button>
                     </div>
                   </div>
