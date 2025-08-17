@@ -93,7 +93,128 @@ function getCursorPaths(): CursorPaths {
   };
 }
 
-// Find main.js file in Cursor installation
+// Advanced Path Management
+
+// Find main.js from selected path
+function findMainJsFromSelectedPath(selectedPath: string): string {
+  const platform = os.platform();
+  let possiblePaths: string[] = [];
+
+  if (platform === "darwin") {
+    // macOS - look for main.js in app bundle
+    if (selectedPath.includes("Cursor.app")) {
+      possiblePaths = [
+        path.join(selectedPath, "Contents/Resources/app/out/main.js"),
+        path.join(selectedPath, "Contents/Resources/app/main.js"),
+      ];
+    } else {
+      possiblePaths = [
+        path.join(selectedPath, "main.js"),
+        path.join(selectedPath, "out/main.js"),
+        path.join(selectedPath, "app/out/main.js"),
+        path.join(selectedPath, "app/main.js"),
+      ];
+    }
+  } else if (platform === "win32") {
+    // Windows - look in resources/app
+    possiblePaths = [
+      path.join(selectedPath, "resources/app/out/main.js"),
+      path.join(selectedPath, "resources/app/main.js"),
+      path.join(selectedPath, "main.js"),
+      path.join(selectedPath, "out/main.js"),
+    ];
+  } else {
+    // Linux
+    possiblePaths = [
+      path.join(selectedPath, "resources/app/out/main.js"),
+      path.join(selectedPath, "resources/app/main.js"),
+      path.join(selectedPath, "main.js"),
+      path.join(selectedPath, "out/main.js"),
+    ];
+  }
+
+  for (const mainJsPath of possiblePaths) {
+    if (fs.existsSync(mainJsPath)) {
+      return mainJsPath;
+    }
+  }
+
+  throw new Error(`Could not find main.js in selected path: ${selectedPath}`);
+}
+
+// Get running Cursor process path
+async function getRunningCursorPath(): Promise<string> {
+  const platform = os.platform();
+
+  if (!(await isCursorRunning())) {
+    throw new Error("Cursor process is not running");
+  }
+
+  if (platform === "win32") {
+    try {
+      // Use PowerShell to get process path
+      const { stdout } = await execAsync(
+        'powershell -WindowStyle Hidden -Command "(Get-Process cursor | Where-Object {$_.Path -ne $null} | Select-Object -First 1).Path"'
+      );
+      const cleanPath = stdout.trim();
+
+      if (cleanPath && cleanPath !== "") {
+        console.log("Found Cursor process path:", cleanPath);
+        return cleanPath;
+      }
+
+      // Fallback to wmic
+      const { stdout: wmicOutput } = await execAsync(
+        "wmic process where \"name='cursor.exe'\" get ExecutablePath /value"
+      );
+
+      const pathMatch = wmicOutput
+        .split("\n")
+        .find((line) => line.startsWith("ExecutablePath="))
+        ?.replace("ExecutablePath=", "")
+        .trim();
+
+      if (pathMatch && pathMatch !== "") {
+        console.log("Found Cursor path via wmic:", pathMatch);
+        return pathMatch;
+      }
+
+      throw new Error("Could not get Cursor process path");
+    } catch (error) {
+      throw new Error(`Failed to get Cursor process path: ${error}`);
+    }
+  } else {
+    throw new Error(
+      "Getting running process path is only supported on Windows"
+    );
+  }
+}
+
+// Validate and find Cursor path
+async function validateCursorPath(selectedPath: string): Promise<boolean> {
+  try {
+    console.log("Validating Cursor path:", selectedPath);
+
+    // Try to find main.js from selected path
+    const mainJsPath = findMainJsFromSelectedPath(selectedPath);
+
+    // Verify the file exists and is actually main.js
+    if (!fs.existsSync(mainJsPath) || !mainJsPath.endsWith("main.js")) {
+      throw new Error("Selected path does not contain valid main.js file");
+    }
+
+    console.log(
+      "Successfully validated Cursor path, main.js found at:",
+      mainJsPath
+    );
+    return true;
+  } catch (error) {
+    console.error("Cursor path validation failed:", error);
+    throw new Error(`Cursor path validation failed: ${error}`);
+  }
+}
+
+// Find main.js file in Cursor installation (enhanced version)
 function findMainJs(appDataDir: string): string | undefined {
   try {
     const platform = os.platform();
@@ -156,14 +277,16 @@ async function killCursorProcesses(): Promise<string> {
   const retryDelay = 1000; // 1 second
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    console.log(`Attempting to kill Cursor processes (attempt ${attempt}/${maxAttempts})...`);
+    console.log(
+      `Attempting to kill Cursor processes (attempt ${attempt}/${maxAttempts})...`
+    );
 
     // Get current running processes
     const processes = await getCursorProcessIds();
 
     if (processes.length === 0) {
       console.log("No Cursor processes found, kill operation complete");
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a bit to ensure cleanup
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait a bit to ensure cleanup
       return "✅ Cursor processes closed";
     }
 
@@ -171,7 +294,7 @@ async function killCursorProcesses(): Promise<string> {
     for (const pid of processes) {
       try {
         await killSingleProcess(pid, platform);
-        await new Promise(resolve => setTimeout(resolve, 200)); // Small delay between kills
+        await new Promise((resolve) => setTimeout(resolve, 200)); // Small delay between kills
       } catch (error) {
         console.log(`Failed to kill process ${pid}:`, error);
         // Continue with other processes
@@ -179,18 +302,20 @@ async function killCursorProcesses(): Promise<string> {
     }
 
     // Wait before checking again
-    await new Promise(resolve => setTimeout(resolve, retryDelay));
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
 
     // Check if any processes remain
     const remainingProcesses = await getCursorProcessIds();
     if (remainingProcesses.length === 0) {
       console.log("All Cursor processes successfully terminated");
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Final wait for cleanup
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Final wait for cleanup
       return "✅ Cursor processes closed";
     }
 
     if (attempt === maxAttempts) {
-      throw new Error("Failed to terminate all Cursor processes after maximum attempts");
+      throw new Error(
+        "Failed to terminate all Cursor processes after maximum attempts"
+      );
     }
   }
 
@@ -221,8 +346,13 @@ async function getCursorProcessIds(): Promise<string[]> {
 // Windows-specific process ID retrieval
 async function getWindowsCursorProcessIds(): Promise<string[]> {
   try {
-    const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq Cursor.exe" /FO CSV /NH');
-    const lines = stdout.trim().split('\n').filter(line => line.includes('Cursor.exe'));
+    const { stdout } = await execAsync(
+      'tasklist /FI "IMAGENAME eq Cursor.exe" /FO CSV /NH'
+    );
+    const lines = stdout
+      .trim()
+      .split("\n")
+      .filter((line) => line.includes("Cursor.exe"));
     const pids: string[] = [];
 
     for (const line of lines) {
@@ -241,17 +371,28 @@ async function getWindowsCursorProcessIds(): Promise<string[]> {
 // macOS-specific process ID retrieval
 async function getMacOSCursorProcessIds(): Promise<string[]> {
   try {
-    const { stdout } = await execAsync("pgrep -f '/Applications/Cursor.app/Contents/MacOS/Cursor'");
-    const pids = stdout.trim().split('\n').filter(pid => pid.trim());
+    const { stdout } = await execAsync(
+      "pgrep -f '/Applications/Cursor.app/Contents/MacOS/Cursor'"
+    );
+    const pids = stdout
+      .trim()
+      .split("\n")
+      .filter((pid) => pid.trim());
 
     // Validate each PID to ensure it's actually a Cursor process
     const validPids: string[] = [];
     for (const pid of pids) {
       try {
-        const { stdout: processInfo } = await execAsync(`ps -p ${pid.trim()} -o args=`);
-        if (processInfo.includes('/Applications/Cursor.app/Contents/MacOS/Cursor') &&
-            !processInfo.includes('--type=') &&
-            !processInfo.includes('Helper')) {
+        const { stdout: processInfo } = await execAsync(
+          `ps -p ${pid.trim()} -o args=`
+        );
+        if (
+          processInfo.includes(
+            "/Applications/Cursor.app/Contents/MacOS/Cursor"
+          ) &&
+          !processInfo.includes("--type=") &&
+          !processInfo.includes("Helper")
+        ) {
           validPids.push(pid.trim());
         }
       } catch {
@@ -271,13 +412,16 @@ async function getLinuxCursorProcessIds(): Promise<string[]> {
     "pgrep -f '/usr/bin/cursor'",
     "pgrep -f '/opt/cursor'",
     "pgrep -f '/snap/cursor'",
-    "pgrep -x cursor"
+    "pgrep -x cursor",
   ];
 
   for (const command of commands) {
     try {
       const { stdout } = await execAsync(command);
-      const pids = stdout.trim().split('\n').filter(pid => pid.trim());
+      const pids = stdout
+        .trim()
+        .split("\n")
+        .filter((pid) => pid.trim());
       if (pids.length > 0) {
         return pids;
       }
@@ -332,8 +476,13 @@ async function isCursorRunning(): Promise<boolean> {
 // Windows-specific Cursor detection
 async function checkCursorRunningWindows(): Promise<boolean> {
   try {
-    const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq Cursor.exe" /FO CSV /NH');
-    const lines = stdout.trim().split('\n').filter(line => line.includes('Cursor.exe'));
+    const { stdout } = await execAsync(
+      'tasklist /FI "IMAGENAME eq Cursor.exe" /FO CSV /NH'
+    );
+    const lines = stdout
+      .trim()
+      .split("\n")
+      .filter((line) => line.includes("Cursor.exe"));
     return lines.length > 0;
   } catch {
     return false;
@@ -344,8 +493,13 @@ async function checkCursorRunningWindows(): Promise<boolean> {
 async function checkCursorRunningMacOS(): Promise<boolean> {
   try {
     // First check for main Cursor app process
-    const { stdout } = await execAsync("pgrep -f '/Applications/Cursor.app/Contents/MacOS/Cursor'");
-    const pids = stdout.trim().split('\n').filter(pid => pid.trim());
+    const { stdout } = await execAsync(
+      "pgrep -f '/Applications/Cursor.app/Contents/MacOS/Cursor'"
+    );
+    const pids = stdout
+      .trim()
+      .split("\n")
+      .filter((pid) => pid.trim());
 
     if (pids.length === 0) {
       return false;
@@ -354,14 +508,19 @@ async function checkCursorRunningMacOS(): Promise<boolean> {
     // Validate each PID to ensure it's actually the main Cursor process
     for (const pid of pids) {
       try {
-        const { stdout: processInfo } = await execAsync(`ps -p ${pid.trim()} -o comm=,args=`);
-        const lines = processInfo.trim().split('\n');
+        const { stdout: processInfo } = await execAsync(
+          `ps -p ${pid.trim()} -o comm=,args=`
+        );
+        const lines = processInfo.trim().split("\n");
 
         for (const line of lines) {
           // Check if it's the main Cursor executable (not helper processes)
-          if (line.includes('/Applications/Cursor.app/Contents/MacOS/Cursor') &&
-              !line.includes('--type=') && // Exclude renderer/utility processes
-              !line.includes('Helper')) {   // Exclude helper processes
+          if (
+            line.includes("/Applications/Cursor.app/Contents/MacOS/Cursor") &&
+            !line.includes("--type=") && // Exclude renderer/utility processes
+            !line.includes("Helper")
+          ) {
+            // Exclude helper processes
             return true;
           }
         }
@@ -383,7 +542,7 @@ async function checkCursorRunningLinux(): Promise<boolean> {
       "pgrep -f '/usr/bin/cursor'",
       "pgrep -f '/opt/cursor'",
       "pgrep -f '/snap/cursor'",
-      "pgrep -x cursor"
+      "pgrep -x cursor",
     ];
 
     for (const command of commands) {
@@ -400,31 +559,6 @@ async function checkCursorRunningLinux(): Promise<boolean> {
     return false;
   } catch {
     return false;
-  }
-}
-
-// Helper function to cleanup database entries (like client-sample)
-async function cleanupDatabaseEntries(paths: CursorPaths): Promise<void> {
-  if (!fs.existsSync(paths.database)) {
-    console.log("Database file does not exist, skipping cleanup");
-    return;
-  }
-
-  try {
-    // Use sqlite3 command to clean up specific entries
-    const cleanupQueries = [
-      "DELETE FROM ItemTable WHERE key LIKE 'telemetry.%';",
-      "DELETE FROM ItemTable WHERE key LIKE 'storage.serviceMachineId%';",
-    ];
-
-    for (const query of cleanupQueries) {
-      await execAsync(`sqlite3 "${paths.database}" "${query}"`);
-    }
-
-    console.log("Database cleanup completed");
-  } catch (error) {
-    console.log("Database cleanup failed:", error);
-    // Don't throw error, continue with reset
   }
 }
 
@@ -535,11 +669,13 @@ async function resetMachineIds(
       await killCursorProcesses();
 
       // 3. Wait for processes to fully terminate
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // 4. Verify all processes are closed
       if (await isCursorRunning()) {
-        throw new Error("Failed to close all Cursor processes. Please close Cursor manually and try again.");
+        throw new Error(
+          "Failed to close all Cursor processes. Please close Cursor manually and try again."
+        );
       }
 
       console.log("All Cursor processes successfully terminated");
@@ -566,11 +702,42 @@ async function resetMachineIds(
   }
 }
 
-// Clean database entries
+// Advanced Database Cleanup Functions
+
+// Clean specific database entries
+async function cleanupDatabaseEntries(paths: CursorPaths): Promise<void> {
+  if (!fs.existsSync(paths.database)) {
+    console.log("Database file does not exist, skipping cleanup");
+    return;
+  }
+
+  try {
+    // Clean specific entries
+    const cleanupQueries = [
+      "DELETE FROM ItemTable WHERE key LIKE 'telemetry.%';",
+      "DELETE FROM ItemTable WHERE key LIKE 'storage.serviceMachineId%';",
+      "DELETE FROM ItemTable WHERE key = 'cursorai/serverConfig';",
+    ];
+
+    for (const query of cleanupQueries) {
+      await execAsync(`sqlite3 "${paths.database}" "${query}"`);
+    }
+
+    console.log("Database cleanup completed");
+  } catch (error) {
+    console.log("Database cleanup failed:", error);
+    // Don't throw error, continue with reset
+  }
+}
+
+// Clean database entries (legacy function - now calls cleanupDatabaseEntries)
 async function cleanDatabase(paths: CursorPaths): Promise<string> {
   if (fs.existsSync(paths.database)) {
     try {
-      // For SQLite database, we'll just delete it to reset completely
+      // Use the new cleanup function first
+      await cleanupDatabaseEntries(paths);
+
+      // For complete reset, still delete the entire database
       fs.unlinkSync(paths.database);
       return "✅ Database cache cleared";
     } catch (error) {
@@ -753,6 +920,14 @@ async function getMachineIds(): Promise<{
   return result;
 }
 
+// Hook/Injection Management
+
+// Regex patterns for machine ID functions
+const MACHINE_ID_REGEX =
+  /async\s+(\w+)\s*\(\)\s*\{\s*return\s+this\.[\w.]+(?:\?\?|\?)\s*this\.([\w.]+)\.machineId\s*\}/g;
+const MAC_MACHINE_ID_REGEX =
+  /async\s+(\w+)\s*\(\)\s*\{\s*return\s+this\.[\w.]+(?:\?\?|\?)\s*this\.([\w.]+)\.macMachineId\s*\}/g;
+
 // Check if hook is applied to main.js
 async function checkHookStatus(): Promise<boolean> {
   const paths = getCursorPaths();
@@ -764,20 +939,140 @@ async function checkHookStatus(): Promise<boolean> {
 
     const content = fs.readFileSync(paths.mainJs, "utf8");
 
-    // Check if the hook pattern exists (simplified check)
-    // Look for modified machineId functions
-    const hasHook =
-      content.includes("return this.") &&
-      (content.includes(".machineId") || content.includes(".macMachineId"));
+    // Check using regex patterns
+    const machineIdMatches = content.match(MACHINE_ID_REGEX);
+    const macMachineIdMatches = content.match(MAC_MACHINE_ID_REGEX);
 
-    return hasHook;
+    // If no matches found, it means the hook has been applied
+    return (
+      !machineIdMatches ||
+      machineIdMatches.length === 0 ||
+      !macMachineIdMatches ||
+      macMachineIdMatches.length === 0
+    );
   } catch (error) {
     console.error("Error checking hook status:", error);
     return false;
   }
 }
 
+// Apply hook to main.js (inject code to bypass machine ID checks)
+async function hookMainJs(forceKill = false): Promise<string> {
+  try {
+    // 1. Check if Cursor is running
+    if (await isCursorRunning()) {
+      if (!forceKill) {
+        throw new Error(
+          "Cursor is currently running. Please close Cursor first or use force kill option."
+        );
+      }
+      console.log("Cursor is running, force killing...");
+      await killCursorProcesses();
+      // Wait for processes to fully terminate
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
 
+    // 2. Get Cursor paths
+    const paths = getCursorPaths();
+    if (!paths.mainJs || !fs.existsSync(paths.mainJs)) {
+      throw new Error("MAIN_JS_NOT_FOUND: main.js file not found");
+    }
+
+    // 3. Read main.js content
+    const content = fs.readFileSync(paths.mainJs, "utf8");
+
+    // 4. Create backup if it doesn't exist
+    const backupPath = paths.mainJs + ".backup";
+    if (!fs.existsSync(backupPath)) {
+      fs.writeFileSync(backupPath, content);
+      console.log("Created backup of main.js");
+    }
+
+    // 5. Check if patterns exist
+    const machineIdMatches = content.match(MACHINE_ID_REGEX);
+    const macMachineIdMatches = content.match(MAC_MACHINE_ID_REGEX);
+
+    if (
+      !machineIdMatches ||
+      machineIdMatches.length === 0 ||
+      !macMachineIdMatches ||
+      macMachineIdMatches.length === 0
+    ) {
+      throw new Error(
+        "Cannot find matching machineId or macMachineId functions to hook"
+      );
+    }
+
+    // 6. Apply replacements
+    let modifiedContent = content;
+
+    // Replace machineId functions
+    modifiedContent = modifiedContent.replace(
+      MACHINE_ID_REGEX,
+      (_match, funcName, objName) => {
+        return `async ${funcName}() { return this.${objName}.machineId }`;
+      }
+    );
+
+    // Replace macMachineId functions
+    modifiedContent = modifiedContent.replace(
+      MAC_MACHINE_ID_REGEX,
+      (_match, funcName, objName) => {
+        return `async ${funcName}() { return this.${objName}.macMachineId }`;
+      }
+    );
+
+    // 7. Write modified content
+    fs.writeFileSync(paths.mainJs, modifiedContent);
+
+    return "✅ Successfully applied hook to main.js";
+  } catch (error) {
+    console.error("Error applying hook:", error);
+    throw new Error("Failed to apply hook: " + (error as Error).message);
+  }
+}
+
+// Restore main.js from backup
+async function restoreHook(forceKill = false): Promise<string> {
+  try {
+    // 1. Check if Cursor is running
+    if (await isCursorRunning()) {
+      if (!forceKill) {
+        throw new Error(
+          "Cursor is currently running. Please close Cursor first or use force kill option."
+        );
+      }
+      console.log("Cursor is running, force killing...");
+      await killCursorProcesses();
+      // Wait for processes to fully terminate
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    // 2. Get Cursor paths
+    const paths = getCursorPaths();
+    if (!paths.mainJs || !fs.existsSync(paths.mainJs)) {
+      throw new Error("MAIN_JS_NOT_FOUND: main.js file not found");
+    }
+
+    // 3. Check if backup exists
+    const backupPath = paths.mainJs + ".backup";
+    if (!fs.existsSync(backupPath)) {
+      return "ℹ️ No backup found to restore from";
+    }
+
+    // 4. Restore from backup
+    const backupContent = fs.readFileSync(backupPath, "utf8");
+    fs.writeFileSync(paths.mainJs, backupContent);
+
+    // 5. Remove backup file
+    fs.unlinkSync(backupPath);
+
+    return "✅ Successfully restored main.js from backup";
+  } catch (error) {
+    console.error("Error restoring hook:", error);
+    throw new Error("Failed to restore hook: " + (error as Error).message);
+  }
+}
 
 // Get cursor token from storage
 async function getCursorToken(): Promise<string> {
@@ -922,7 +1217,9 @@ async function switchCursorAccount(options: {
     // 3. Note: client-sample does NOT update storage.json during account switch
     // They only update storage.json during machine ID reset
     // So we skip storage.json update to match their behavior exactly
-    console.log("Skipping storage.json update (following client-sample pattern)");
+    console.log(
+      "Skipping storage.json update (following client-sample pattern)"
+    );
 
     // 4. Update SQLite database ONLY (following client-sample pattern exactly)
     if (fs.existsSync(paths.database)) {
@@ -930,19 +1227,13 @@ async function switchCursorAccount(options: {
         console.log("Updating Cursor database with new account info...");
 
         // Process token - split by %3A%3A and take second part if exists (client-sample logic)
-        const processedToken = token.includes('%3A%3A')
-          ? token.split('%3A%3A')[1] || token
+        const processedToken = token.includes("%3A%3A")
+          ? token.split("%3A%3A")[1] || token
           : token;
 
         // Open database connection
         const db = new Database(paths.database);
 
-        // Prepare the updates following client-sample pattern exactly:
-        // ("cursor.email", email.clone()),
-        // ("cursor.accessToken", processed_token.clone()),
-        // ("cursorAuth/refreshToken", processed_token.clone()),
-        // ("cursorAuth/accessToken", processed_token.clone()),
-        // ("cursorAuth/cachedEmail", email.clone()),
         const updates = [
           { key: "cursor.email", value: email },
           { key: "cursor.accessToken", value: processedToken },
@@ -952,8 +1243,12 @@ async function switchCursorAccount(options: {
         ];
 
         // Update each key-value pair
-        const updateStmt = db.prepare("UPDATE ItemTable SET value = ? WHERE key = ?");
-        const insertStmt = db.prepare("INSERT INTO ItemTable (key, value) VALUES (?, ?)");
+        const updateStmt = db.prepare(
+          "UPDATE ItemTable SET value = ? WHERE key = ?"
+        );
+        const insertStmt = db.prepare(
+          "INSERT INTO ItemTable (key, value) VALUES (?, ?)"
+        );
 
         for (const update of updates) {
           console.log(`Updating database key: ${update.key}`);
@@ -985,7 +1280,7 @@ async function switchCursorAccount(options: {
 
 export function setupIpcHandlers() {
   // Main reset handler
-  ipcMain.handle("reset-cursor", async (event, options) => {
+  ipcMain.handle("reset-cursor", async (_event, _options) => {
     try {
       console.log("Starting Cursor reset...");
 
@@ -1041,17 +1336,17 @@ export function setupIpcHandlers() {
 
   ipcMain.handle(
     "reset-machine-ids",
-    async (event, forceKill = false, customDeviceId) => {
+    async (_event, forceKill = false, customDeviceId) => {
       const paths = getCursorPaths();
       return await resetMachineIds(paths, forceKill, customDeviceId);
     }
   );
 
-  ipcMain.handle("clean-database", async (event, paths) => {
+  ipcMain.handle("clean-database", async (_event, paths) => {
     return await cleanDatabase(paths);
   });
 
-  ipcMain.handle("restore-main-js", async (event, paths) => {
+  ipcMain.handle("restore-main-js", async (_event, paths) => {
     return await restoreMainJs(paths);
   });
 
@@ -1073,14 +1368,49 @@ export function setupIpcHandlers() {
   });
 
   // Account switching handler
-  ipcMain.handle("switch-cursor-account", async (event, options) => {
+  ipcMain.handle("switch-cursor-account", async (_event, options) => {
     return await switchCursorAccount(options);
+  });
+
+  // Hook/Injection Management handlers
+  ipcMain.handle("hook-main-js", async (_event, forceKill = false) => {
+    return await hookMainJs(forceKill);
+  });
+
+  ipcMain.handle("restore-hook", async (_event, forceKill = false) => {
+    return await restoreHook(forceKill);
+  });
+
+  // Advanced Path Management handlers
+  ipcMain.handle("get-running-cursor-path", async () => {
+    return await getRunningCursorPath();
+  });
+
+  ipcMain.handle(
+    "validate-cursor-path",
+    async (_event, selectedPath: string) => {
+      return await validateCursorPath(selectedPath);
+    }
+  );
+
+  ipcMain.handle(
+    "find-main-js-from-path",
+    async (_event, selectedPath: string) => {
+      return findMainJsFromSelectedPath(selectedPath);
+    }
+  );
+
+  // Database cleanup handler
+  ipcMain.handle("cleanup-database-entries", async () => {
+    const paths = getCursorPaths();
+    await cleanupDatabaseEntries(paths);
+    return "✅ Database entries cleaned up";
   });
 
   // API proxy handler for authentication
   ipcMain.handle(
     "api-request",
-    async (event, { url, method, body, headers }) => {
+    async (_event, { url, method, body, headers }) => {
       return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
         const options = {

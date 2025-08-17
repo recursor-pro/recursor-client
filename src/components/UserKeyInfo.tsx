@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { CheckCircle, XCircle, AlertCircle } from "lucide-react";
 import Button from "./Button";
 import { AccessKeyInfo } from "../types";
 
@@ -43,12 +44,24 @@ const UserKeyInfo: React.FC<UserKeyInfoProps> = ({
     return "bg-green-500";
   };
 
-  const getStatusColor = (status: string, expired: boolean) => {
+  const getStatusIcon = (status: string, expired: boolean) => {
+    if (expired) return XCircle;
+    if (status === "ACTIVE") return CheckCircle;
+    return AlertCircle;
+  };
+
+  const getStatusIconColor = (status: string, expired: boolean) => {
+    if (expired) return "text-error-600";
+    if (status === "ACTIVE") return "text-success-600";
+    return "text-secondary-500";
+  };
+
+  const getStatusBadgeColor = (status: string, expired: boolean) => {
     if (expired)
-      return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
+      return "bg-error-100 text-error-800 dark:bg-error-900/20 dark:text-error-400";
     if (status === "ACTIVE")
-      return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-    return "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200";
+      return "bg-success-100 text-success-800 dark:bg-success-900/20 dark:text-success-400";
+    return "bg-secondary-100 text-secondary-800 dark:bg-secondary-800 dark:text-secondary-300";
   };
 
   return (
@@ -147,16 +160,26 @@ const UserKeyInfo: React.FC<UserKeyInfoProps> = ({
           <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
             Status
           </label>
-          <div className="mt-1">
-            <span
-              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(accessKey.status, isExpired)}`}
-            >
-              {isExpired
-                ? "❌ Expired"
-                : accessKey.status === "ACTIVE"
-                  ? "✅ Active"
-                  : `⚠️ ${accessKey.status}`}
-            </span>
+          <div className="flex items-center space-x-2 mt-1">
+            {(() => {
+              const StatusIcon = getStatusIcon(accessKey.status, isExpired);
+              return (
+                <div className="flex items-center space-x-2">
+                  <StatusIcon
+                    className={`w-4 h-4 ${getStatusIconColor(accessKey.status, isExpired)}`}
+                  />
+                  <span
+                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getStatusBadgeColor(accessKey.status, isExpired)}`}
+                  >
+                    {isExpired
+                      ? "Expired"
+                      : accessKey.status === "ACTIVE"
+                        ? "Active"
+                        : accessKey.status}
+                  </span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 

@@ -1,32 +1,54 @@
 // Type declarations for Electron API exposed via preload script
 
+// Import types from ipcTypes
+import type {
+  CursorPaths,
+  ResetOptions,
+  ResetResult,
+  MachineIds,
+  SwitchAccountOptions,
+  ApiRequestOptions,
+  ApiResponse,
+} from './ipcTypes';
+
 interface ElectronAPI {
+  // Generic invoke method for all IPC calls
+  invoke: (channel: string, ...args: any[]) => Promise<any>;
+
   // Cursor reset APIs
-  resetCursor: (options: any) => Promise<any>;
-  getCursorPaths: () => Promise<any>;
-  killCursorProcesses: () => Promise<any>;
+  resetCursor: (options: ResetOptions) => Promise<ResetResult>;
+  getCursorPaths: () => Promise<CursorPaths>;
+  killCursorProcesses: () => Promise<string>;
   resetMachineIds: (
     forceKill?: boolean,
     customDeviceId?: string
-  ) => Promise<any>;
-  cleanDatabase: (paths: any) => Promise<any>;
-  restoreMainJs: (paths: any) => Promise<any>;
+  ) => Promise<string>;
+  cleanDatabase: (paths: CursorPaths) => Promise<string>;
+  restoreMainJs: (paths: CursorPaths) => Promise<string>;
 
   // Device info APIs
-  getMachineIds: () => Promise<any>;
-  checkHookStatus: () => Promise<any>;
-  checkCursorRunning: () => Promise<any>;
-  getCursorToken: () => Promise<any>;
-
-  // API proxy
-  apiRequest: (options: any) => Promise<any>;
+  getMachineIds: () => Promise<MachineIds>;
+  checkHookStatus: () => Promise<boolean>;
+  checkCursorRunning: () => Promise<boolean>;
+  getCursorToken: () => Promise<string>;
 
   // Account switching
-  switchCursorAccount: (options: {
-    email: string;
-    token: string;
-    forceKill?: boolean;
-  }) => Promise<any>;
+  switchCursorAccount: (options: SwitchAccountOptions) => Promise<string>;
+
+  // Hook/Injection Management APIs
+  hookMainJs: (forceKill?: boolean) => Promise<string>;
+  restoreHook: (forceKill?: boolean) => Promise<string>;
+
+  // Advanced Path Management APIs
+  getRunningCursorPath: () => Promise<string>;
+  validateCursorPath: (selectedPath: string) => Promise<boolean>;
+  findMainJsFromPath: (selectedPath: string) => Promise<string>;
+
+  // Database cleanup APIs
+  cleanupDatabaseEntries: () => Promise<string>;
+
+  // API proxy
+  apiRequest: (options: ApiRequestOptions) => Promise<ApiResponse>;
 }
 
 declare global {
@@ -35,4 +57,4 @@ declare global {
   }
 }
 
-export {};
+export { ElectronAPI };
