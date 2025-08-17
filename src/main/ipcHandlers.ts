@@ -1278,6 +1278,198 @@ async function switchCursorAccount(options: {
   }
 }
 
+// Admin Privileges Management (following Rust implementation)
+
+// Check if current process has admin privileges
+async function checkAdminPrivileges(): Promise<boolean> {
+  const platform = os.platform();
+  console.log("🔍 checkAdminPrivileges - Platform:", platform);
+
+  try {
+    if (platform === "win32") {
+      // Windows: Check if running as administrator
+      const { stdout } = await execAsync(
+        'powershell -WindowStyle Hidden -Command "([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] \'Administrator\')"'
+      );
+      const hasAdmin = stdout.trim().toLowerCase() === "true";
+      console.log("🪟 Windows admin check result:", hasAdmin);
+      return hasAdmin;
+    } else if (platform === "darwin") {
+      // macOS: Check if user is in admin group
+      try {
+        const { stdout } = await execAsync("groups");
+        console.log("🍎 macOS groups output:", stdout);
+        const hasAdmin = stdout.includes("admin");
+        console.log("🍎 macOS admin check result:", hasAdmin);
+        return hasAdmin;
+      } catch (error) {
+        console.log("🍎 macOS groups command failed, trying fallback:", error);
+        // Fallback: check if we can write to system directories
+        try {
+          await execAsync("test -w /usr/local/bin");
+          console.log("🍎 macOS fallback: can write to /usr/local/bin");
+          return true;
+        } catch {
+          console.log("🍎 macOS fallback: cannot write to /usr/local/bin");
+          return false;
+        }
+      }
+    } else if (platform === "linux") {
+      // Linux: Check if user is root or in sudo group
+      try {
+        const { stdout } = await execAsync("id -u");
+        if (stdout.trim() === "0") {
+          console.log("🐧 Linux: Running as root");
+          return true; // Root user
+        }
+
+        // Check if user is in sudo group
+        const { stdout: groups } = await execAsync("groups");
+        console.log("🐧 Linux groups output:", groups);
+        const hasAdmin = groups.includes("sudo") || groups.includes("wheel");
+        console.log("🐧 Linux admin check result:", hasAdmin);
+        return hasAdmin;
+      } catch (error) {
+        console.log("🐧 Linux admin check failed:", error);
+        return false;
+      }
+    }
+
+    console.log("❓ Unknown platform, returning false");
+    return false;
+  } catch (error) {
+    console.error("❌ Error checking admin privileges:", error);
+    return false;
+  }
+}
+
+// Request admin privileges (restart with elevated permissions)
+async function requestAdminPrivileges(): Promise<boolean> {
+  const platform = os.platform();
+
+  try {
+    if (platform === "win32") {
+      // Windows: Use PowerShell to restart with admin privileges
+      const exePath = process.execPath;
+      const args = process.argv.slice(1).join(" ");
+
+      const command = `Start-Process -FilePath "${exePath}" -ArgumentList "${args}" -Verb RunAs`;
+
+      try {
+        await execAsync(`powershell -WindowStyle Hidden -Command "${command}"`);
+        return true;
+      } catch (error) {
+        console.error("Failed to request admin privileges:", error);
+        return false;
+      }
+    } else if (platform === "darwin") {
+      // macOS: Use osascript to request admin privileges
+      const exePath = process.execPath;
+      const args = process.argv.slice(1).join(" ");
+
+      const script = `do shell script "${exePath} ${args}" with administrator privileges`;
+
+      try {
+        await execAsync(`osascript -e '${script}'`);
+        return true;
+      } catch (error) {
+        console.error("Failed to request admin privileges:", error);
+        return false;
+      }
+    } else if (platform === "linux") {
+      // Linux: Use pkexec or gksudo to request admin privileges
+      const exePath = process.execPath;
+      const args = process.argv.slice(1).join(" ");
+
+      try {
+        // Try pkexec first
+        await execAsync(`pkexec ${exePath} ${args}`);
+        return true;
+      } catch {
+        try {
+          // Fallback to gksudo
+          await execAsync(`gksudo ${exePath} ${args}`);
+          return true;
+        } catch (error) {
+          console.error("Failed to request admin privileges:", error);
+          return false;
+        }
+      }
+    }
+
+    return false;
+  } catch (error) {
+    console.error("Error requesting admin privileges:", error);
+    return false;
+  }
+}
+
+// Check if admin privileges are required for operations
+async function isAdminRequired(): Promise<boolean> {
+  const platform = os.platform();
+  const paths = getCursorPaths();
+  console.log("🔍 isAdminRequired - Platform:", platform);
+  console.log("🔍 isAdminRequired - Cursor paths:", paths);
+
+  try {
+    // Test write access to critical paths
+    if (platform === "win32") {
+      // Windows: Check if we can write to Cursor installation directory
+      if (paths.mainJs) {
+        const cursorDir = path.dirname(paths.mainJs);
+        console.log("🪟 Testing write access to:", cursorDir);
+        try {
+          const testFile = path.join(cursorDir, ".write_test");
+          fs.writeFileSync(testFile, "test");
+          fs.unlinkSync(testFile);
+          console.log("🪟 Write test successful - no admin required");
+          return false; // No admin required
+        } catch (error) {
+          console.log("🪟 Write test failed - admin required:", error);
+          return true; // Admin required
+        }
+      }
+    } else if (platform === "darwin") {
+      // macOS: Check if we can write to Applications directory
+      if (paths.mainJs && paths.mainJs.includes("/Applications/")) {
+        console.log("🍎 Cursor is in /Applications, testing write access");
+        try {
+          const testFile = "/Applications/.write_test";
+          fs.writeFileSync(testFile, "test");
+          fs.unlinkSync(testFile);
+          console.log("🍎 Write test to /Applications successful - no admin required");
+          return false; // No admin required
+        } catch (error) {
+          console.log("🍎 Write test to /Applications failed - admin required:", error);
+          return true; // Admin required
+        }
+      } else {
+        console.log("🍎 Cursor is not in /Applications, checking main.js directory");
+        if (paths.mainJs) {
+          const cursorDir = path.dirname(paths.mainJs);
+          console.log("🍎 Testing write access to:", cursorDir);
+          try {
+            const testFile = path.join(cursorDir, ".write_test");
+            fs.writeFileSync(testFile, "test");
+            fs.unlinkSync(testFile);
+            console.log("🍎 Write test successful - no admin required");
+            return false; // No admin required
+          } catch (error) {
+            console.log("🍎 Write test failed - admin required:", error);
+            return true; // Admin required
+          }
+        }
+      }
+    }
+
+    console.log("❓ No specific checks for platform, assuming no admin required");
+    return false;
+  } catch (error) {
+    console.error("❌ Error checking admin requirements:", error);
+    return true; // Assume admin required on error
+  }
+}
+
 export function setupIpcHandlers() {
   // Main reset handler
   ipcMain.handle("reset-cursor", async (_event, _options) => {
@@ -1405,6 +1597,19 @@ export function setupIpcHandlers() {
     const paths = getCursorPaths();
     await cleanupDatabaseEntries(paths);
     return "✅ Database entries cleaned up";
+  });
+
+  // Admin privileges handlers
+  ipcMain.handle("check-admin-privileges", async () => {
+    return await checkAdminPrivileges();
+  });
+
+  ipcMain.handle("request-admin-privileges", async () => {
+    return await requestAdminPrivileges();
+  });
+
+  ipcMain.handle("is-admin-required", async () => {
+    return await isAdminRequired();
   });
 
   // API proxy handler for authentication

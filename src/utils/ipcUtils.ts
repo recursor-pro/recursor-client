@@ -15,6 +15,8 @@ import {
   CursorProcessInfo,
   DatabaseCleanupResult,
   OperationResult,
+  AdminPrivilegesInfo,
+  AdminPrivilegesResult,
 } from "../types/ipcTypes";
 
 // Check if we're in Electron environment
@@ -256,5 +258,97 @@ export async function safeHookRestore(forceKill = true): Promise<string> {
   } catch (error) {
     console.error("Hook restoration failed:", error);
     throw error;
+  }
+}
+
+// Admin privileges management
+export async function checkAdminPrivileges(): Promise<boolean> {
+  if (!isElectron) throw new Error("Not in Electron environment");
+  return window.electronAPI.invoke(IPC_CHANNELS.CHECK_ADMIN_PRIVILEGES);
+}
+
+export async function requestAdminPrivileges(): Promise<boolean> {
+  if (!isElectron) throw new Error("Not in Electron environment");
+  return window.electronAPI.invoke(IPC_CHANNELS.REQUEST_ADMIN_PRIVILEGES);
+}
+
+export async function isAdminRequired(): Promise<boolean> {
+  if (!isElectron) throw new Error("Not in Electron environment");
+  return window.electronAPI.invoke(IPC_CHANNELS.IS_ADMIN_REQUIRED);
+}
+
+// Enhanced admin privileges functions with proper typing
+export async function getAdminPrivilegesInfo(): Promise<AdminPrivilegesInfo> {
+  if (!isElectron) throw new Error("Not in Electron environment");
+
+  try {
+    const [hasAdminPrivileges, isRequired] = await Promise.all([
+      checkAdminPrivileges(),
+      isAdminRequired(),
+    ]);
+
+    return {
+      hasAdminPrivileges,
+      isAdminRequired: isRequired,
+      platform: navigator.userAgent.includes('Win') ? 'Windows' :
+                navigator.userAgent.includes('Mac') ? 'macOS' : 'Linux',
+      canRequestElevation: true, // Assume we can request elevation
+    };
+  } catch (error) {
+    return {
+      hasAdminPrivileges: false,
+      isAdminRequired: true,
+      platform: navigator.userAgent.includes('Win') ? 'Windows' :
+                navigator.userAgent.includes('Mac') ? 'macOS' : 'Linux',
+      canRequestElevation: false,
+    };
+  }
+}
+
+export async function ensureAdminPrivileges(): Promise<AdminPrivilegesResult> {
+  if (!isElectron) throw new Error("Not in Electron environment");
+
+  try {
+    // Check if we already have admin privileges
+    const hasPrivileges = await checkAdminPrivileges();
+    if (hasPrivileges) {
+      return {
+        success: true,
+        hasPrivileges: true,
+        message: "Already running with admin privileges",
+      };
+    }
+
+    // Check if admin privileges are required
+    const isRequired = await isAdminRequired();
+    if (!isRequired) {
+      return {
+        success: true,
+        hasPrivileges: false,
+        message: "Admin privileges not required for current operations",
+      };
+    }
+
+    // Request admin privileges
+    const requestResult = await requestAdminPrivileges();
+    if (requestResult) {
+      return {
+        success: true,
+        hasPrivileges: true,
+        message: "Successfully elevated to admin privileges",
+      };
+    } else {
+      return {
+        success: false,
+        hasPrivileges: false,
+        error: "Failed to obtain admin privileges",
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      hasPrivileges: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }

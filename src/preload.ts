@@ -39,6 +39,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Database cleanup APIs
   cleanupDatabaseEntries: () => ipcRenderer.invoke('cleanup-database-entries'),
 
+  // Admin privileges APIs
+  checkAdminPrivileges: () => ipcRenderer.invoke('check-admin-privileges'),
+  requestAdminPrivileges: () => ipcRenderer.invoke('request-admin-privileges'),
+  isAdminRequired: () => ipcRenderer.invoke('is-admin-required'),
+
   // API proxy
   apiRequest: (options: any) => ipcRenderer.invoke('api-request', options),
 });

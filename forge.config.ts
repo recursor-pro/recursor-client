@@ -1,8 +1,6 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
-import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
-import { MakerDeb } from '@electron-forge/maker-deb';
-import { MakerRpm } from '@electron-forge/maker-rpm';
+import { MakerDMG } from '@electron-forge/maker-dmg';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { WebpackPlugin } from '@electron-forge/plugin-webpack';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
@@ -16,9 +14,29 @@ const config: ForgeConfig = {
     asar: true,
     name: 'Recursor',
     icon: './build/icons/icon',
+    appBundleId: 'com.recursor.app',
+    appCategoryType: 'public.app-category.developer-tools',
+    protocols: [
+      {
+        name: 'Recursor Protocol',
+        schemes: ['recursor']
+      }
+    ],
+    // Production optimizations
+    prune: true,
+    // Remove ignore - let webpack plugin handle this automatically
+    // ignore: [...] - Webpack plugin will set this automatically
   },
   rebuildConfig: {},
-  makers: [new MakerSquirrel({}), new MakerZIP({}, ['darwin']), new MakerRpm({}), new MakerDeb({})],
+  makers: [
+    // macOS DMG (primary distribution)
+    new MakerDMG({
+      name: 'Recursor'
+    }, ['darwin']),
+
+    // Universal ZIP (works on all platforms)
+    new MakerZIP({}, ['darwin', 'win32', 'linux'])
+  ],
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new WebpackPlugin({

@@ -9,8 +9,10 @@ import {
 import { Home, Users, Settings, ChevronLeft, ChevronRight } from "lucide-react";
 import { useTheme } from "../hooks/useTheme";
 import { useAuth } from "../hooks/useAuth";
+import { useAdminPrivileges } from "../hooks/useAdminPrivileges";
 import ThemeToggle from "../components/ThemeToggle";
 import Logo from "../components/Logo";
+import AdminPrivilegesModal from "../components/AdminPrivilegesModal";
 import { ToastProvider, useToast } from "../components/ToastContainer";
 import DashboardView from "../views/DashboardView";
 import AccountsView from "../views/AccountsView";
@@ -25,8 +27,9 @@ const MainContent: React.FC = () => {
   const { isDark } = useTheme();
   const auth = useAuth();
   const toast = useToast();
+  const { showModal, dismissModal, adminInfo } = useAdminPrivileges();
 
-  // Validate access key on app startup
+  // Validate access key and check admin privileges on app startup
   useEffect(() => {
     const validateOnStartup = async () => {
       if (auth.isAuthenticated) {
@@ -73,6 +76,15 @@ const MainContent: React.FC = () => {
 
   return (
     <div className={`min-h-screen flex ${isDark ? "dark" : ""}`}>
+      {/* Admin Privileges Modal */}
+      <AdminPrivilegesModal
+        isOpen={showModal}
+        onClose={dismissModal}
+        onConfirm={() => {
+          console.log("Admin privileges handled");
+        }}
+      />
+
       {/* Drag Region */}
       <div className="fixed top-0 left-0 right-0 h-8 z-50 drag-region" />
 

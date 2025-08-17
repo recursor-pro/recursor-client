@@ -91,6 +91,21 @@ export interface CursorResetError {
   stack?: string;
 }
 
+// Admin Privileges Types
+export interface AdminPrivilegesInfo {
+  hasAdminPrivileges: boolean;
+  isAdminRequired: boolean;
+  platform: string;
+  canRequestElevation: boolean;
+}
+
+export interface AdminPrivilegesResult {
+  success: boolean;
+  hasPrivileges: boolean;
+  message?: string;
+  error?: string;
+}
+
 // Operation Status Types
 export type OperationStatus = 'idle' | 'running' | 'success' | 'error';
 
@@ -133,6 +148,11 @@ export const IPC_CHANNELS = {
 
   // Database cleanup
   CLEANUP_DATABASE_ENTRIES: "cleanup-database-entries",
+
+  // Admin privileges
+  CHECK_ADMIN_PRIVILEGES: "check-admin-privileges",
+  REQUEST_ADMIN_PRIVILEGES: "request-admin-privileges",
+  IS_ADMIN_REQUIRED: "is-admin-required",
 
   // API proxy
   API_REQUEST: "api-request",

@@ -19,6 +19,8 @@ export type {
   OperationStatus,
   OperationResult,
   IpcChannelName,
+  AdminPrivilegesInfo,
+  AdminPrivilegesResult,
 } from "../types/ipcTypes";
 
 // Export IPC channel constants
@@ -54,6 +56,13 @@ export {
 
   // Database cleanup
   cleanupDatabaseEntries,
+
+  // Admin privileges
+  checkAdminPrivileges,
+  requestAdminPrivileges,
+  isAdminRequired,
+  getAdminPrivilegesInfo,
+  ensureAdminPrivileges,
 
   // API proxy
   apiRequest,

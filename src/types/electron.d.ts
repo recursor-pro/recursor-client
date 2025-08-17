@@ -47,6 +47,11 @@ interface ElectronAPI {
   // Database cleanup APIs
   cleanupDatabaseEntries: () => Promise<string>;
 
+  // Admin privileges APIs
+  checkAdminPrivileges: () => Promise<boolean>;
+  requestAdminPrivileges: () => Promise<boolean>;
+  isAdminRequired: () => Promise<boolean>;
+
   // API proxy
   apiRequest: (options: ApiRequestOptions) => Promise<ApiResponse>;
 }

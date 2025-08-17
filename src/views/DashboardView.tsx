@@ -17,6 +17,7 @@ import UserKeyInfo from "../components/UserKeyInfo";
 import QuickChange from "../components/QuickChange";
 import { deviceService, type DeviceInfoState } from "../services/deviceService";
 import { useAuth } from "../hooks/useAuth";
+import { useEnsureAdminPrivileges } from "../hooks/useAdminPrivileges";
 
 const DashboardView: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,7 @@ const DashboardView: React.FC = () => {
   // Use authentication hook
   const auth = useAuth();
   const toast = useToast();
+  const { ensureAdminForOperation } = useEnsureAdminPrivileges();
 
   // State for confirmation dialogs
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -124,6 +126,17 @@ const DashboardView: React.FC = () => {
       setConfirmDialog((prev) => ({ ...prev, loading: true }));
       toast.showInfo("Starting Cursor reset...");
 
+      // Check admin privileges first
+      const hasAdmin = await ensureAdminForOperation("Cursor Reset");
+      if (!hasAdmin) {
+        toast.showError(
+          "Admin Privileges Required",
+          "Administrator privileges are required to reset Cursor. Please restart the application as administrator."
+        );
+        setConfirmDialog((prev) => ({ ...prev, loading: false, isOpen: false }));
+        return;
+      }
+
       // Check if Electron API is available
       if (!window.electronAPI) {
         throw new Error(
@@ -160,6 +173,17 @@ const DashboardView: React.FC = () => {
   const handleChangeMachineId = async () => {
     try {
       setLoading(true);
+
+      // Check admin privileges first
+      const hasAdmin = await ensureAdminForOperation("Change Machine ID");
+      if (!hasAdmin) {
+        toast.showError(
+          "Admin Privileges Required",
+          "Administrator privileges are required to change machine ID. Please restart the application as administrator."
+        );
+        setLoading(false);
+        return;
+      }
 
       // Check if Cursor is running
       if (window.electronAPI) {
