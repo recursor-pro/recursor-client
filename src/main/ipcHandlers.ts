@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { ipcMain, dialog } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -12,6 +12,7 @@ const execAsync = promisify(exec);
 
 interface CursorPaths {
   storage: string;
+  auth: string;
   database: string;
   mainJs?: string;
   configDir: string;
@@ -87,6 +88,7 @@ function getCursorPaths(): CursorPaths {
 
   return {
     storage: path.join(configDir, "globalStorage", "storage.json"),
+    auth: path.join(configDir, "globalStorage", "cursor.auth.json"),
     database: path.join(configDir, "globalStorage", "state.vscdb"),
     configDir,
     mainJs: findMainJs(appDataDir),
@@ -841,6 +843,26 @@ async function getMachineIds(): Promise<{
       }
     }
 
+    // Try to read from cursor.auth.json (separate auth file)
+    if (fs.existsSync(paths.auth)) {
+      try {
+        const authData = JSON.parse(fs.readFileSync(paths.auth, "utf8"));
+        console.log("Auth.json keys:", Object.keys(authData));
+
+        if (!result.currentAccount && authData.email) {
+          result.currentAccount = authData.email;
+          console.log("Found account in auth.json:", result.currentAccount);
+        }
+
+        if (!result.cursorToken && (authData.access_token || authData.token)) {
+          result.cursorToken = authData.access_token || authData.token;
+          console.log("Found token in auth.json");
+        }
+      } catch (error) {
+        console.log("Error reading auth.json:", error);
+      }
+    }
+
     // Try to read from SQLite database (like client-sample does)
     if (fs.existsSync(paths.database)) {
       console.log(
@@ -1171,6 +1193,20 @@ async function getCursorToken(): Promise<string> {
         }
       }
 
+      // Try cursor.auth.json if still no token
+      if (!token && fs.existsSync(paths.auth)) {
+        try {
+          const authData = JSON.parse(fs.readFileSync(paths.auth, "utf8"));
+          token = authData.access_token || authData.token || "";
+          console.log(
+            "Token from auth.json:",
+            token ? token.substring(0, 20) + "..." : "none"
+          );
+        } catch (error) {
+          console.log("Error reading auth.json for token:", error);
+        }
+      }
+
       console.log(
         "Final token format check:",
         token
@@ -1214,14 +1250,34 @@ async function switchCursorAccount(options: {
     // 2. Get Cursor paths
     const paths = getCursorPaths();
 
-    // 3. Note: client-sample does NOT update storage.json during account switch
+    // 3. Update cursor.auth.json (following client-sample pattern)
+    try {
+      const authData = {
+        email: email,
+        access_token: token
+      };
+
+      // Ensure directory exists
+      const authDir = path.dirname(paths.auth);
+      if (!fs.existsSync(authDir)) {
+        fs.mkdirSync(authDir, { recursive: true });
+      }
+
+      fs.writeFileSync(paths.auth, JSON.stringify(authData, null, 2));
+      console.log("Successfully updated cursor.auth.json");
+    } catch (error) {
+      console.log("Error updating cursor.auth.json:", error);
+      // Don't throw error, continue with database update
+    }
+
+    // 4. Note: client-sample does NOT update storage.json during account switch
     // They only update storage.json during machine ID reset
     // So we skip storage.json update to match their behavior exactly
     console.log(
       "Skipping storage.json update (following client-sample pattern)"
     );
 
-    // 4. Update SQLite database ONLY (following client-sample pattern exactly)
+    // 5. Update SQLite database ONLY (following client-sample pattern exactly)
     if (fs.existsSync(paths.database)) {
       try {
         console.log("Updating Cursor database with new account info...");
@@ -1470,6 +1526,141 @@ async function isAdminRequired(): Promise<boolean> {
   }
 }
 
+// Export Cursor database and storage.json files
+async function exportCursorData(): Promise<{
+  success: boolean;
+  message: string;
+  exportPath?: string;
+  filesExported?: string[];
+}> {
+  try {
+    // Get Cursor paths
+    const paths = getCursorPaths();
+
+    // Show save dialog to let user choose export location
+    const result = await dialog.showSaveDialog({
+      title: "Export Cursor Data",
+      defaultPath: `cursor-data-export-${new Date().toISOString().slice(0, 10)}.zip`,
+      filters: [
+        { name: "ZIP Archive", extensions: ["zip"] },
+        { name: "All Files", extensions: ["*"] }
+      ]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return {
+        success: false,
+        message: "Export cancelled by user"
+      };
+    }
+
+    const exportPath = result.filePath;
+    const tempDir = path.join(os.tmpdir(), `cursor-export-${Date.now()}`);
+
+    // Create temporary directory
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const filesExported: string[] = [];
+
+    // Copy storage.json if it exists
+    if (fs.existsSync(paths.storage)) {
+      const storageDestination = path.join(tempDir, "storage.json");
+      fs.copyFileSync(paths.storage, storageDestination);
+      filesExported.push("storage.json");
+    }
+
+    // Copy cursor.auth.json if it exists (following client-sample logic)
+    console.log("🔍 Checking auth file at:", paths.auth);
+    console.log("🔍 Auth file exists:", fs.existsSync(paths.auth));
+
+    if (fs.existsSync(paths.auth)) {
+      const authDestination = path.join(tempDir, "cursor.auth.json");
+      fs.copyFileSync(paths.auth, authDestination);
+      filesExported.push("cursor.auth.json");
+      console.log("✅ Auth file copied successfully");
+    } else {
+      console.log("⚠️ Auth file not found at expected location");
+      console.log("📁 Expected path:", paths.auth);
+      console.log("📁 Storage path (for reference):", paths.storage);
+      console.log("📁 Database path (for reference):", paths.database);
+
+      // Check if the globalStorage directory exists
+      const globalStorageDir = path.dirname(paths.auth);
+      console.log("📁 GlobalStorage directory exists:", fs.existsSync(globalStorageDir));
+
+      if (fs.existsSync(globalStorageDir)) {
+        console.log("� Contents of globalStorage directory:");
+        try {
+          const files = fs.readdirSync(globalStorageDir);
+          files.forEach(file => {
+            console.log("  -", file);
+          });
+        } catch (error) {
+          console.log("  Error reading directory:", error);
+        }
+      }
+    }
+
+    // Copy database if it exists
+    if (fs.existsSync(paths.database)) {
+      const dbDestination = path.join(tempDir, "state.vscdb");
+      fs.copyFileSync(paths.database, dbDestination);
+      filesExported.push("state.vscdb");
+    }
+
+    // Create metadata file with export info
+    const metadata = {
+      exportDate: new Date().toISOString(),
+      cursorPaths: paths,
+      platform: os.platform(),
+      exportedFiles: filesExported,
+      note: "Exported Cursor data for research purposes"
+    };
+
+    const metadataPath = path.join(tempDir, "export-metadata.json");
+    fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+    filesExported.push("export-metadata.json");
+
+    // For simplicity, create a folder instead of ZIP
+    const finalExportPath = exportPath.replace('.zip', '');
+
+    // Create export directory
+    if (!fs.existsSync(finalExportPath)) {
+      fs.mkdirSync(finalExportPath, { recursive: true });
+    }
+
+    // Copy files to export directory
+    for (const file of fs.readdirSync(tempDir)) {
+      const sourcePath = path.join(tempDir, file);
+      const destPath = path.join(finalExportPath, file);
+      fs.copyFileSync(sourcePath, destPath);
+    }
+
+    // Clean up temporary directory
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch (error) {
+      console.warn("Could not clean up temp directory:", error);
+    }
+
+    return {
+      success: true,
+      message: `Successfully exported ${filesExported.length} files to ${finalExportPath}`,
+      exportPath: finalExportPath,
+      filesExported
+    };
+
+  } catch (error) {
+    console.error("Export error:", error);
+    return {
+      success: false,
+      message: `Export failed: ${error instanceof Error ? error.message : String(error)}`
+    };
+  }
+}
+
 export function setupIpcHandlers() {
   // Main reset handler
   ipcMain.handle("reset-cursor", async (_event, _options) => {
@@ -1668,4 +1859,24 @@ export function setupIpcHandlers() {
       });
     }
   );
+
+  // Export handler
+  ipcMain.handle("export-cursor-data", async () => {
+    return await exportCursorData();
+  });
+
+  // Debug handler to check cursor paths
+  ipcMain.handle("debug-cursor-paths", async () => {
+    const paths = getCursorPaths();
+    const result = {
+      paths,
+      fileExists: {
+        storage: fs.existsSync(paths.storage),
+        auth: fs.existsSync(paths.auth),
+        database: fs.existsSync(paths.database),
+      }
+    };
+    console.log("🔍 Debug cursor paths:", result);
+    return result;
+  });
 }

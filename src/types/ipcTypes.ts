@@ -3,6 +3,7 @@
 
 export interface CursorPaths {
   storage: string;
+  auth: string;
   database: string;
   mainJs?: string;
   configDir: string;
@@ -116,6 +117,14 @@ export interface OperationResult<T = any> {
   timestamp: number;
 }
 
+// Export Types
+export interface ExportResult {
+  success: boolean;
+  message: string;
+  exportPath?: string;
+  filesExported?: string[];
+}
+
 // IPC Channel Names
 export const IPC_CHANNELS = {
   // Main reset functionality
@@ -156,6 +165,9 @@ export const IPC_CHANNELS = {
 
   // API proxy
   API_REQUEST: "api-request",
+
+  // Export functionality
+  EXPORT_CURSOR_DATA: "export-cursor-data",
 } as const;
 
 // Type for IPC channel names

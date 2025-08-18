@@ -46,4 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // API proxy
   apiRequest: (options: any) => ipcRenderer.invoke('api-request', options),
+
+  // Export functionality
+  exportCursorData: () => ipcRenderer.invoke('export-cursor-data'),
 });

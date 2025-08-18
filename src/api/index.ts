@@ -21,6 +21,7 @@ export type {
   IpcChannelName,
   AdminPrivilegesInfo,
   AdminPrivilegesResult,
+  ExportResult,
 } from "../types/ipcTypes";
 
 // Export IPC channel constants
@@ -78,16 +79,9 @@ export {
   fullReset,
   safeHookApply,
   safeHookRestore,
-} from "../utils/ipcUtils";
 
-// Import specific functions for internal use
-import {
-  getCursorPaths,
-  checkCursorRunning,
-  resetCursor,
-  executeOperation,
-  safeHookApply,
-  safeHookRestore,
+  // Export functionality
+  exportCursorData,
 } from "../utils/ipcUtils";
 
 // Import types from the correct module
@@ -134,8 +128,9 @@ export async function healthCheck(): Promise<{
   }
 
   try {
-    const paths = await getCursorPaths();
-    const cursor = await checkCursorRunning();
+    // Use the window.electronAPI directly for health check
+    const paths = await window.electronAPI.getCursorPaths();
+    const cursor = await window.electronAPI.checkCursorRunning();
 
     return {
       electron: true,
@@ -151,36 +146,22 @@ export async function healthCheck(): Promise<{
 export async function quickReset(
   options: ResetOptions = {}
 ): Promise<ResetResult> {
-  return executeOperation(() => resetCursor(options), "quickReset").then(
-    (result) => {
-      if (result.status === "success" && result.data) {
-        return result.data;
-      }
-      throw new Error(result.error?.message || "Reset failed");
-    }
-  );
+  if (!isElectronEnvironment()) {
+    throw new Error("Not in Electron environment");
+  }
+  return window.electronAPI.resetCursor(options);
 }
 
 export async function quickHookApply(forceKill = true): Promise<string> {
-  return executeOperation(
-    () => safeHookApply(forceKill),
-    "quickHookApply"
-  ).then((result) => {
-    if (result.status === "success" && result.data) {
-      return result.data;
-    }
-    throw new Error(result.error?.message || "Hook application failed");
-  });
+  if (!isElectronEnvironment()) {
+    throw new Error("Not in Electron environment");
+  }
+  return window.electronAPI.hookMainJs(forceKill);
 }
 
 export async function quickHookRestore(forceKill = true): Promise<string> {
-  return executeOperation(
-    () => safeHookRestore(forceKill),
-    "quickHookRestore"
-  ).then((result) => {
-    if (result.status === "success" && result.data) {
-      return result.data;
-    }
-    throw new Error(result.error?.message || "Hook restoration failed");
-  });
+  if (!isElectronEnvironment()) {
+    throw new Error("Not in Electron environment");
+  }
+  return window.electronAPI.restoreHook(forceKill);
 }

@@ -9,9 +9,10 @@ import type {
   SwitchAccountOptions,
   ApiRequestOptions,
   ApiResponse,
+  ExportResult,
 } from './ipcTypes';
 
-interface ElectronAPI {
+export interface ElectronAPI {
   // Generic invoke method for all IPC calls
   invoke: (channel: string, ...args: any[]) => Promise<any>;
 
@@ -54,6 +55,9 @@ interface ElectronAPI {
 
   // API proxy
   apiRequest: (options: ApiRequestOptions) => Promise<ApiResponse>;
+
+  // Export functionality
+  exportCursorData: () => Promise<ExportResult>;
 }
 
 declare global {

@@ -2,18 +2,57 @@ import React, { useState } from "react";
 import Card from "../components/Card";
 import Button from "../components/Button";
 import { useTheme } from "../hooks/useTheme";
+import { useToast } from "../components/ToastContainer";
+import { exportCursorData, debugCursorPaths } from "../utils/ipcUtils";
 
 const SettingsView: React.FC = () => {
   const { isDark, toggleTheme } = useTheme();
+  const toast = useToast();
   const [autoStart, setAutoStart] = useState(false);
   const [notifications, setNotifications] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
-  const handleSaveSettings = () => {
-    console.log("Settings saved");
+  const handleExportData = async () => {
+    try {
+      setIsExporting(true);
+      const result = await exportCursorData();
+
+      if (result.success) {
+        toast.showSuccess(
+          "Export Successful!",
+          `Files exported: ${result.filesExported?.join(", ")}\nLocation: ${result.exportPath}`,
+          8000
+        );
+      } else {
+        toast.showError("Export Failed", result.message);
+      }
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.showError(
+        "Export Failed",
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setIsExporting(false);
+    }
   };
 
-  const handleExportData = () => {
-    console.log("Export data");
+  const handleDebugPaths = async () => {
+    try {
+      const result = await debugCursorPaths();
+      console.log("Debug paths result:", result);
+      toast.showSuccess(
+        "Debug Paths",
+        `Check console for detailed path information`,
+        5000
+      );
+    } catch (error) {
+      console.error("Debug error:", error);
+      toast.showError(
+        "Debug Failed",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
   };
 
   const handleImportData = () => {
@@ -52,7 +91,7 @@ const SettingsView: React.FC = () => {
       </Card>
 
       {/* Application Settings */}
-      <Card title="Application">
+      {/* <Card title="Application">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -100,7 +139,42 @@ const SettingsView: React.FC = () => {
             </button>
           </div>
         </div>
-      </Card>
+      </Card> */}
+
+      {/* Data Management */}
+      {/* <Card title="Data Management">
+        <div className="space-y-4">
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+              Export Cursor Data
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Export your Cursor data files for research purposes:
+              <br />• <strong>storage.json</strong> - Machine IDs and configuration
+              <br />• <strong>cursor.auth.json</strong> - Authentication credentials
+              <br />• <strong>state.vscdb</strong> - SQLite database
+              <br />• <strong>export-metadata.json</strong> - Export information
+            </p>
+            <div className="space-y-2">
+              <Button
+                onClick={handleExportData}
+                variant="secondary"
+                disabled={isExporting}
+                className="w-full"
+              >
+                {isExporting ? "📤 Exporting..." : "📤 Export Database & Storage"}
+              </Button>
+              <Button
+                onClick={handleDebugPaths}
+                variant="outline"
+                className="w-full text-xs"
+              >
+                🔍 Debug Paths
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Card> */}
 
       {/* About */}
       <Card title="About">
@@ -118,18 +192,11 @@ const SettingsView: React.FC = () => {
               Authors
             </h4>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Original authors: Recursor Team
+              Recursor Team
             </p>
           </div>
         </div>
       </Card>
-
-      {/* Save Button */}
-      <div className="flex justify-end">
-        <Button onClick={handleSaveSettings} variant="primary">
-          💾 Save Settings
-        </Button>
-      </div>
     </div>
   );
 };

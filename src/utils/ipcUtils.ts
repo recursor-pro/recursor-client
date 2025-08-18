@@ -17,6 +17,7 @@ import {
   OperationResult,
   AdminPrivilegesInfo,
   AdminPrivilegesResult,
+  ExportResult,
 } from "../types/ipcTypes";
 
 // Check if we're in Electron environment
@@ -241,6 +242,18 @@ export async function fullReset(
   options: ResetOptions = {}
 ): Promise<ResetResult> {
   return await resetCursor(options);
+}
+
+// Export Cursor data
+export async function exportCursorData(): Promise<ExportResult> {
+  if (!isElectron) throw new Error("Not in Electron environment");
+  return window.electronAPI.invoke(IPC_CHANNELS.EXPORT_CURSOR_DATA);
+}
+
+// Debug Cursor paths
+export async function debugCursorPaths(): Promise<any> {
+  if (!isElectron) throw new Error("Not in Electron environment");
+  return window.electronAPI.invoke("debug-cursor-paths");
 }
 
 export async function safeHookApply(forceKill = true): Promise<string> {
